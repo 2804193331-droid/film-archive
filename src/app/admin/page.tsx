@@ -52,7 +52,7 @@ export default async function AdminPage() {
   const supabase = createSupabaseAdminClient();
   const [albumsCount, photosCount, usersCount, recentAlbums, recentPhotos, users] = supabase
     ? await Promise.all([
-        countRows(supabase, "series"),
+        countRows(supabase, "albums"),
         countRows(supabase, "photos"),
         countRows(supabase, "profiles"),
         readRecentAlbums(supabase),
@@ -261,8 +261,8 @@ async function countRows(supabase: SupabaseAdmin, table: string) {
 
 async function readRecentAlbums(supabase: SupabaseAdmin): Promise<RecentAlbum[]> {
   const { data, error } = await supabase
-    .from("series")
-    .select("id,title,owner_id,visibility,created_at,series_photos(photo_id)")
+    .from("albums")
+    .select("id,title,user_id,visibility,created_at")
     .order("created_at", { ascending: false })
     .limit(12);
 
@@ -270,14 +270,20 @@ async function readRecentAlbums(supabase: SupabaseAdmin): Promise<RecentAlbum[]>
     return [];
   }
 
-  return data.map((item: any) => ({
-    id: item.id,
-    title: item.title,
-    ownerId: item.owner_id,
-    visibility: item.visibility,
-    createdAt: item.created_at,
-    photoCount: Array.isArray(item.series_photos) ? item.series_photos.length : 0
-  }));
+  return Promise.all(
+    data.map(async (item: any) => {
+      const { count } = await supabase.from("photos").select("id", { count: "exact", head: true }).eq("album_id", item.id);
+
+      return {
+        id: item.id,
+        title: item.title,
+        ownerId: item.user_id,
+        visibility: item.visibility,
+        createdAt: item.created_at,
+        photoCount: count ?? 0
+      };
+    })
+  );
 }
 
 async function readRecentPhotos(supabase: SupabaseAdmin): Promise<RecentPhoto[]> {

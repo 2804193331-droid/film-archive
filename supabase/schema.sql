@@ -145,6 +145,7 @@ alter table public.photos add column if not exists description text;
 alter table public.photos add column if not exists original_path text;
 alter table public.photos add column if not exists preview_path text;
 alter table public.photos add column if not exists thumbnail_path text;
+alter table public.photos add column if not exists image_path text;
 alter table public.photos drop column if exists like_count;
 alter table public.photos drop column if exists favorite_count;
 alter table public.photos add column if not exists album_id uuid references public.albums(id) on delete set null;

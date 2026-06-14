@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAppSessionFromRequest } from "@/lib/app-session";
 import { cameras } from "@/lib/catalog";
 import {
+  deleteOssObjects,
   imageProcessUrl,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES,
@@ -19,11 +20,11 @@ type UploadRecord = {
   id: string;
   user_id: string;
   album_id: string;
-  series_id: string;
   title: string;
   original_path: string;
   preview_path: string;
   thumbnail_path: string;
+  image_path: string;
   original_url: string;
   preview_url: string;
   thumbnail_url: string;
@@ -131,21 +132,8 @@ export async function POST(request: NextRequest) {
       visibility: "public"
     };
 
-    const seriesPayload = {
-      id: parsed.data.albumId,
-      owner_id: user.id,
-      title: albumTitle,
-      description: metadata.notes ?? "",
-      cover_path: cover.thumbnail_url,
-      location: metadata.location,
-      date: cover.taken_at?.slice(0, 10),
-      visibility: "public"
-    };
-
     await upsertAlbumSafely(supabase, albumPayload);
-    await upsertSeriesSafely(supabase, seriesPayload);
     await insertPhotosWithSchemaFallback(supabase, records);
-    await insertSeriesPhotosSafely(supabase, parsed.data.albumId, records);
 
     return NextResponse.json({
       uploaded: records.length,
@@ -153,6 +141,8 @@ export async function POST(request: NextRequest) {
       urls: records.map((record) => record.original_url)
     });
   } catch (error) {
+    await cleanupFailedUpload(supabase, parsed.data.albumId, parsed.data.files.map((file) => file.originalKey));
+
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "上传入库失败。" },
       { status: 400 }
@@ -205,11 +195,11 @@ function createUploadRecord({
     id: file.id,
     user_id: userId,
     album_id: albumId,
-    series_id: albumId,
     title: filenameTitle(file.name),
     original_path: originalKey,
     preview_path: originalKey,
     thumbnail_path: originalKey,
+    image_path: originalKey,
     original_url: publicObjectUrl(originalKey),
     preview_url: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
     thumbnail_url: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
@@ -233,13 +223,6 @@ function createUploadRecord({
 
 async function upsertAlbumSafely(supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>, payload: Record<string, unknown>) {
   const { error } = await supabase.from("albums").upsert(stripUndefinedValues(payload));
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
-async function upsertSeriesSafely(supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>, payload: Record<string, unknown>) {
-  const { error } = await supabase.from("series").upsert(stripUndefinedValues(payload));
   if (error) {
     throw new Error(error.message);
   }
@@ -279,18 +262,14 @@ async function insertPhotosWithSchemaFallback(
   throw new Error("数据库 photos 表缺少过多字段，请重新执行 supabase/schema.sql。");
 }
 
-async function insertSeriesPhotosSafely(
+async function cleanupFailedUpload(
   supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
-  seriesId: string,
-  records: UploadRecord[]
+  albumId: string,
+  objectKeys: string[]
 ) {
-  const { error } = await supabase
-    .from("series_photos")
-    .insert(records.map((record, index) => ({ series_id: seriesId, photo_id: record.id, position: index + 1 })));
-
-  if (error) {
-    throw new Error(error.message);
-  }
+  await deleteOssObjects(objectKeys);
+  await supabase.from("photos").delete().eq("album_id", albumId);
+  await supabase.from("albums").delete().eq("id", albumId);
 }
 
 function normalizeMetadata(metadata?: UploadMetadata) {

@@ -125,8 +125,8 @@ async function getSupabaseAlbums() {
   }
 
   const { data, error } = await supabase
-    .from("series")
-    .select("id,title,description,cover_path,location,date,visibility,created_at,profiles:owner_id(id,username,display_name,avatar_url),series_photos(photo_id)")
+    .from("albums")
+    .select("id,user_id,title,description,cover_path,location,date,visibility,created_at,profiles:user_id(id,username,display_name,avatar_url)")
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -141,13 +141,11 @@ async function getSupabaseAlbums() {
     const owner = normalizeProfile(item.profiles);
     const albumPhotos = photosByAlbum.get(item.id) ?? [];
     const cover = albumPhotos[0];
-    const photoIds = Array.isArray(item.series_photos)
-      ? item.series_photos.map((entry: { photo_id: string }) => entry.photo_id)
-      : albumPhotos.map((photo) => photo.id);
+    const photoIds = albumPhotos.map((photo) => photo.id);
 
     return {
       id: item.id,
-      userId: owner.id,
+      userId: item.user_id ?? owner.id,
       title: item.title,
       description: item.description ?? undefined,
       coverUrl: resolveStoredUrl(item.cover_path, "thumbnail") ?? cover?.thumbnailUrl ?? demoAlbums[0].coverUrl,
@@ -180,6 +178,7 @@ function buildPhotoSelect(excludedColumns: Set<string>) {
     "original_path",
     "preview_path",
     "thumbnail_path",
+    "image_path",
     "original_url",
     "preview_url",
     "thumbnail_url",
@@ -289,9 +288,10 @@ function groupPhotosByAlbum(photos: Photo[]) {
 
 function mapSupabasePhoto(item: any): Photo {
   const uploader = normalizeProfile(item.profiles);
-  const originalUrl = item.original_url ?? resolveStoredUrl(item.original_path, "original") ?? demoPhotos[0].originalUrl;
-  const previewUrl = item.preview_url ?? resolveStoredUrl(item.preview_path ?? item.original_path, "preview") ?? originalUrl;
-  const thumbnailUrl = item.thumbnail_url ?? resolveStoredUrl(item.thumbnail_path ?? item.original_path, "thumbnail") ?? previewUrl;
+  const objectPath = item.original_path ?? item.image_path;
+  const originalUrl = item.original_url ?? resolveStoredUrl(objectPath, "original") ?? demoPhotos[0].originalUrl;
+  const previewUrl = item.preview_url ?? resolveStoredUrl(item.preview_path ?? objectPath, "preview") ?? originalUrl;
+  const thumbnailUrl = item.thumbnail_url ?? resolveStoredUrl(item.thumbnail_path ?? objectPath, "thumbnail") ?? previewUrl;
 
   return {
     id: item.id,
@@ -302,7 +302,7 @@ function mapSupabasePhoto(item: any): Photo {
     thumbnailUrl,
     previewUrl,
     originalUrl,
-    originalPath: item.original_path ?? undefined,
+    originalPath: objectPath ?? undefined,
     previewPath: item.preview_path ?? undefined,
     thumbnailPath: item.thumbnail_path ?? undefined,
     fileSize: item.file_size ?? undefined,

@@ -32,11 +32,11 @@ type PhotoInsert = {
   id: string;
   user_id: string;
   album_id: string;
-  series_id: string;
   title: string;
   original_path: string;
   preview_path: string;
   thumbnail_path: string;
+  image_path: string;
   original_url: string;
   preview_url: string;
   thumbnail_url: string;
@@ -102,7 +102,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   try {
     await ensureProfile(supabase, session);
 
-    const existing = await getEditableSeries(supabase, id, session.id, isAdmin);
+    const existing = await getEditableAlbum(supabase, id, session.id, isAdmin);
     if (!existing) {
       return NextResponse.json({ error: "没有找到这个作品组。" }, { status: 404 });
     }
@@ -119,10 +119,6 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     if (!isAdmin) albumUpdate = albumUpdate.eq("user_id", session.id);
     await albumUpdate;
 
-    let seriesUpdate = supabase.from("series").update(albumPayload).eq("id", id);
-    if (!isAdmin) seriesUpdate = seriesUpdate.eq("owner_id", session.id);
-    await seriesUpdate;
-
     const photoPayload = stripUndefinedValues({
       camera: updates.camera,
       camera_type: inferCameraType(updates.camera),
@@ -136,7 +132,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     });
 
     if (Object.keys(photoPayload).length) {
-      let photoUpdate = supabase.from("photos").update(photoPayload).eq("series_id", id);
+      let photoUpdate = supabase.from("photos").update(photoPayload).eq("album_id", id);
       if (!isAdmin) photoUpdate = photoUpdate.eq("user_id", session.id);
       await photoUpdate;
     }
@@ -155,7 +151,6 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
     if (newPhotos.length) {
       await insertPhotosWithSchemaFallback(supabase, newPhotos);
-      await insertSeriesPhotosSafely(supabase, id, newPhotos, existing.photoCount);
       await updateCoverIfMissing(supabase, id, newPhotos[0].thumbnail_url, session.id, isAdmin);
     }
 
@@ -202,7 +197,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   const isAdmin = isAdminUser(session.id, session.username);
 
   try {
-    const existing = await getEditableSeries(supabase, id, session.id, isAdmin);
+    const existing = await getEditableAlbum(supabase, id, session.id, isAdmin);
     if (!existing) {
       return NextResponse.json({ error: "没有找到这个作品组。" }, { status: 404 });
     }
@@ -210,13 +205,12 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     const { data: photos } = await supabase
       .from("photos")
       .select("id,original_path")
-      .eq("series_id", id);
+      .eq("album_id", id);
 
     const photoIds = (photos ?? []).map((photo: { id: string }) => photo.id);
     await deleteOssObjects((photos ?? []).map((photo: { original_path?: string }) => photo.original_path));
 
     if (photoIds.length) {
-      await supabase.from("series_photos").delete().eq("series_id", id);
       let photoDelete = supabase.from("photos").delete().in("id", photoIds);
       if (!isAdmin) photoDelete = photoDelete.eq("user_id", session.id);
       await photoDelete;
@@ -225,10 +219,6 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
     let albumDelete = supabase.from("albums").delete().eq("id", id);
     if (!isAdmin) albumDelete = albumDelete.eq("user_id", session.id);
     await albumDelete;
-
-    let seriesDelete = supabase.from("series").delete().eq("id", id);
-    if (!isAdmin) seriesDelete = seriesDelete.eq("owner_id", session.id);
-    await seriesDelete;
 
     return NextResponse.json({ ok: true, deletedPhotos: photoIds.length });
   } catch (error) {
@@ -249,19 +239,19 @@ async function readPatchPayload(request: NextRequest) {
   return request.json().catch(() => ({}));
 }
 
-async function getEditableSeries(
+async function getEditableAlbum(
   supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
   albumId: string,
   userId: string,
   isAdmin: boolean
 ) {
   let query = supabase
-    .from("series")
-    .select("id,owner_id,series_photos(photo_id)")
+    .from("albums")
+    .select("id,user_id")
     .eq("id", albumId);
 
   if (!isAdmin) {
-    query = query.eq("owner_id", userId);
+    query = query.eq("user_id", userId);
   }
 
   const { data, error } = await query.maybeSingle();
@@ -269,10 +259,12 @@ async function getEditableSeries(
     return null;
   }
 
+  const { count } = await supabase.from("photos").select("id", { count: "exact", head: true }).eq("album_id", albumId);
+
   return {
     id: data.id as string,
-    ownerId: data.owner_id as string,
-    photoCount: Array.isArray(data.series_photos) ? data.series_photos.length : 0
+    ownerId: data.user_id as string,
+    photoCount: count ?? 0
   };
 }
 
@@ -300,11 +292,11 @@ function createPhotoInsert({
     id: file.id,
     user_id: userId,
     album_id: albumId,
-    series_id: albumId,
     title: filenameTitle(file.name),
     original_path: originalKey,
     preview_path: originalKey,
     thumbnail_path: originalKey,
+    image_path: originalKey,
     original_url: publicObjectUrl(originalKey),
     preview_url: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
     thumbnail_url: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
@@ -352,21 +344,6 @@ async function insertPhotosWithSchemaFallback(
   throw new Error("数据库 photos 表缺少过多字段，请重新执行 supabase/schema.sql。");
 }
 
-async function insertSeriesPhotosSafely(
-  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
-  seriesId: string,
-  records: PhotoInsert[],
-  startPosition: number
-) {
-  const { error } = await supabase
-    .from("series_photos")
-    .insert(records.map((record, index) => ({ series_id: seriesId, photo_id: record.id, position: startPosition + index + 1 })));
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
 async function updateCoverIfMissing(
   supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
   albumId: string,
@@ -377,10 +354,6 @@ async function updateCoverIfMissing(
   let albumUpdate = supabase.from("albums").update({ cover_path: coverUrl }).eq("id", albumId).is("cover_path", null);
   if (!isAdmin) albumUpdate = albumUpdate.eq("user_id", userId);
   await albumUpdate;
-
-  let seriesUpdate = supabase.from("series").update({ cover_path: coverUrl }).eq("id", albumId).is("cover_path", null);
-  if (!isAdmin) seriesUpdate = seriesUpdate.eq("owner_id", userId);
-  await seriesUpdate;
 }
 
 function parseAlbumUpdate(value: z.infer<typeof patchSchema>, fallbackTitle = ""): AlbumUpdate {
