@@ -1,19 +1,30 @@
 # Film Archive
 
-Film Archive 是一个 Next.js 摄影社区雏形，定位为“公开浏览 + 登录上传 + 本地硬盘存储 + 胶片摄影数据库 + 作品档案馆”。
+Film Archive 是一个 Next.js 摄影作品社区与胶片作品档案馆。
 
-## 已实现
+当前版本使用：
 
-- 首页小红书式瀑布流、懒加载、搜索和筛选
-- 照片详情页：大图、上传者、相机、镜头、胶卷、ISO、光圈、快门、焦距、日期、地点、扫描设备、备注
-- 系列列表和系列详情
-- 登录 / 注册入口，使用 Supabase Auth
+- Next.js
+- Supabase Auth
+- Supabase Database
+- 阿里云 OSS 图片存储
+- 小红书式作品组瀑布流
+- 批量上传和 OSS 直传进度条
+
+## 功能
+
+- 公开浏览首页作品组
+- 登录后上传照片
+- 支持单张、多张、文件夹上传
+- 一次最多上传 100 张
+- 单张最大 100MB
+- 浏览器直传阿里云 OSS
+- 上传完成后写入 Supabase
+- 首页从 Supabase 读取作品组
+- 图片展示使用 OSS URL
+- 个人中心与头像修改
+- 我的照片、编辑作品组、追加照片、删除作品组
 - 深色模式 / 浅色模式 / 跟随系统
-- 首次启动 `/setup`，自动检测 Windows 盘符、macOS `/Volumes/*`、Linux `/mnt/*`
-- 本地硬盘存储目录：`originals`、`previews`、`thumbnails`、`backup`
-- 存储管理：当前位置、在线状态、已用空间、剩余空间、图片数量、更换路径
-- 上传接口：多文件 / 文件夹、格式校验、120MB 后端限制、EXIF 读取、预览图和缩略图生成
-- Supabase SQL：用户资料、照片、系列、胶片、相机、镜头、点赞、收藏和 RLS 权限
 
 ## 启动
 
@@ -22,64 +33,94 @@ npm install
 npm run dev
 ```
 
-打开 `http://localhost:3000`。首次进入会跳转到 `/setup`，选择一个照片存储目录后会自动创建：
+打开：
 
 ```text
-originals
-previews
-thumbnails
-backup
+http://localhost:3000
 ```
 
-如果你更喜欢环境变量固定路径，可以复制 `.env.example` 为 `.env.local`，填写：
+## 环境变量
 
-```text
-UPLOAD_DIR=D:\PhotoArchive
-```
-
-## Supabase 配置
-
-1. 在 Supabase SQL Editor 中依次执行：
-   - `supabase/schema.sql`
-   - `supabase/seed.sql`
-2. 复制 `.env.example` 为 `.env.local`
-3. 填入：
+复制 `.env.example` 为 `.env.local`，填写：
 
 ```text
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 SUPABASE_SERVICE_ROLE_KEY=
+APP_SESSION_SECRET=
+
+ALI_OSS_ACCESS_KEY_ID=
+ALI_OSS_ACCESS_KEY_SECRET=
+ALI_OSS_BUCKET=film-archive-images
+ALI_OSS_REGION=cn-shanghai
+ALI_OSS_ENDPOINT=oss-cn-shanghai.aliyuncs.com
+ALI_OSS_PUBLIC_BASE_URL=
+
+ADMIN_USERNAMES=
+ADMIN_USER_IDS=
 ```
 
-上传接口会验证用户登录，并用 `SUPABASE_SERVICE_ROLE_KEY` 将照片记录写入数据库。照片文件仍然只存到本地硬盘，不使用 Supabase Storage。
-
-## 路径策略
-
-数据库只保存相对路径，例如：
+`ALI_OSS_PUBLIC_BASE_URL` 可留空。留空时默认使用：
 
 ```text
-originals/2026/06/001.jpg
+https://film-archive-images.oss-cn-shanghai.aliyuncs.com
 ```
 
-不会保存：
+如果以后绑定 CDN 或自定义域名，可以把它填成你的公开图片域名。
+
+## Supabase
+
+在 Supabase SQL Editor 执行：
 
 ```text
-D:\FilmDisk\originals\2026\06\001.jpg
+supabase/schema.sql
+supabase/seed.sql
 ```
 
-因此将硬盘从 `FilmDisk` 换到 `PhotoArchive` 时，只需要在“设置 -> 存储管理”里更换 `UPLOAD_DIR`。
+`photos` 表会保存：
 
-## 只读模式
+- OSS object key
+- 原图 URL
+- 预览 URL
+- 缩略图 URL
+- 文件大小
+- MIME Type
+- 上传时间
 
-当外接硬盘或 NAS 不在线时，网站会进入只读模式：
+## 阿里云 OSS
 
-- 仍可浏览数据库中的照片信息
-- 禁止上传、删除和修改
-- 顶部会提示“照片存储硬盘未连接”
+默认配置：
 
-## 后续建议
+```text
+Bucket: film-archive-images
+Region: cn-shanghai
+Endpoint: oss-cn-shanghai.aliyuncs.com
+```
 
-- 接入真实“我的照片 / 我的系列”管理列表
-- 将点赞、收藏按钮接入数据库
-- 增加后台任务：批量修复缩略图、重新扫描目录、迁移照片
-- 为上传增加更细的逐文件状态和失败文件队列
+浏览器会先向后端请求签名 URL，然后直接 PUT 文件到 OSS。AccessKey 只存在服务端环境变量中，不会暴露给浏览器。
+
+Bucket 需要配置 CORS，允许浏览器直传：
+
+```text
+AllowedOrigin: 你的站点域名，本地开发可加 http://localhost:3000
+AllowedMethod: PUT, GET, HEAD
+AllowedHeader: *
+ExposeHeader: ETag
+```
+
+如果图片要直接公开显示，Bucket 或对应对象需要允许公开读取，或者通过 CDN/自定义域名提供公开访问。
+
+## 本地硬盘存储
+
+旧版 `UPLOAD_DIR / D:\FilmArchive` 本地硬盘存储已经不再用于生产上传。
+
+`/setup` 不再配置本地路径，首页也不会因为未配置本地硬盘而跳转。
+
+## 验证
+
+```bash
+npm run typecheck
+npm run lint
+npm audit --omit=dev
+npm run build
+```

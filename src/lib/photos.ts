@@ -1,7 +1,6 @@
 import { demoAlbums, demoPhotos, demoUsers } from "@/lib/demo-data";
-import { getLocalAlbum, getLocalAlbums, getLocalPhotos, getLocalPhotosByAlbum } from "@/lib/local-library";
+import { imageProcessUrl, publicObjectUrl } from "@/lib/oss";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { getConfiguredUploadDir } from "@/lib/storage";
 import type { Album, Photo, Uploader } from "@/lib/types";
 
 export type ArchiveFilters = {
@@ -16,12 +15,8 @@ export type ArchiveFilters = {
 };
 
 export async function getPhotos(filters: ArchiveFilters = {}) {
-  const uploadDir = await getConfiguredUploadDir();
-  const localPhotos = await getLocalPhotos(uploadDir);
   const supabasePhotos = await getSupabasePhotos(filters);
-  const realPhotos = dedupePhotos([...localPhotos, ...supabasePhotos]);
-
-  return filterPhotos(realPhotos, filters);
+  return filterPhotos(dedupePhotos(supabasePhotos), filters);
 }
 
 export async function getPhoto(id: string) {
@@ -30,31 +25,15 @@ export async function getPhoto(id: string) {
 }
 
 export async function getAlbums(filters: ArchiveFilters = {}) {
-  const uploadDir = await getConfiguredUploadDir();
-  const localAlbums = await getLocalAlbums(uploadDir);
   const supabaseAlbums = await getSupabaseAlbums();
-  const realAlbums = dedupeAlbums([...localAlbums, ...supabaseAlbums]);
-
-  return filterAlbums(realAlbums, filters);
+  return filterAlbums(dedupeAlbums(supabaseAlbums), filters);
 }
 
 export async function getAlbum(id: string) {
-  const uploadDir = await getConfiguredUploadDir();
-  return (
-    (await getLocalAlbum(uploadDir, id)) ??
-    (await getAlbums()).find((album) => album.id === id) ??
-    demoAlbums.find((album) => album.id === id) ??
-    null
-  );
+  return (await getAlbums()).find((album) => album.id === id) ?? demoAlbums.find((album) => album.id === id) ?? null;
 }
 
 export async function getAlbumPhotos(id: string) {
-  const uploadDir = await getConfiguredUploadDir();
-  const localPhotos = await getLocalPhotosByAlbum(uploadDir, id);
-  if (localPhotos.length) {
-    return localPhotos;
-  }
-
   const photos = await getPhotos();
   return photos.filter((photo) => photo.albumId === id);
 }
@@ -75,11 +54,7 @@ export async function getSeries(id: string) {
 export async function getUser(idOrUsername: string) {
   const key = decodeURIComponent(idOrUsername).trim();
   const [albums, photos] = await Promise.all([getAlbums(), getPhotos()]);
-  const users = [
-    ...albums.map((album) => album.owner),
-    ...photos.map((photo) => photo.uploader),
-    ...demoUsers
-  ];
+  const users = [...albums.map((album) => album.owner), ...photos.map((photo) => photo.uploader), ...demoUsers];
 
   return (
     users.find((user) => user.id === key || user.username === key) ?? {
@@ -90,7 +65,7 @@ export async function getUser(idOrUsername: string) {
   );
 }
 
-async function getSupabasePhotos(filters: ArchiveFilters) {
+async function getSupabasePhotos(filters: ArchiveFilters = {}) {
   const supabase = createSupabaseAdminClient();
   let supabasePhotos: Photo[] = [];
 
@@ -100,13 +75,13 @@ async function getSupabasePhotos(filters: ArchiveFilters) {
 
   const excludedColumns = new Set<string>();
 
-  for (let attempt = 0; attempt < 24; attempt += 1) {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
     const query = supabase
       .from("photos")
       .select(buildPhotoSelect(excludedColumns))
       .eq("visibility", "public")
       .order("created_at", { ascending: false })
-      .limit(120);
+      .limit(1000);
 
     if (filters.q) {
       query.or(
@@ -127,12 +102,12 @@ async function getSupabasePhotos(filters: ArchiveFilters) {
     }
 
     const { data, error } = await query;
-    if (!error && data?.length) {
-      supabasePhotos = data.map(mapSupabasePhoto);
+    if (!error) {
+      supabasePhotos = (data ?? []).map(mapSupabasePhoto);
       break;
     }
 
-    const missingColumn = error ? extractMissingPhotoColumn(error.message) : null;
+    const missingColumn = extractMissingPhotoColumn(error.message);
     if (!missingColumn) {
       break;
     }
@@ -153,30 +128,42 @@ async function getSupabaseAlbums() {
     .from("series")
     .select("id,title,description,cover_path,location,date,visibility,created_at,profiles:owner_id(id,username,display_name,avatar_url),series_photos(photo_id)")
     .order("created_at", { ascending: false })
-    .limit(80);
+    .limit(200);
 
   if (error || !data?.length) {
     return [];
   }
 
+  const photos = await getSupabasePhotos();
+  const photosByAlbum = groupPhotosByAlbum(photos);
+
   return data.map((item): Album => {
     const owner = normalizeProfile(item.profiles);
+    const albumPhotos = photosByAlbum.get(item.id) ?? [];
+    const cover = albumPhotos[0];
     const photoIds = Array.isArray(item.series_photos)
       ? item.series_photos.map((entry: { photo_id: string }) => entry.photo_id)
-      : [];
+      : albumPhotos.map((photo) => photo.id);
 
     return {
       id: item.id,
       userId: owner.id,
       title: item.title,
       description: item.description ?? undefined,
-      coverUrl: item.cover_path ? `/api/assets/thumbnails/${item.cover_path}` : demoAlbums[0].coverUrl,
-      coverWidth: 1600,
-      coverHeight: 1200,
-      photoCount: photoIds.length,
+      coverUrl: resolveStoredUrl(item.cover_path, "thumbnail") ?? cover?.thumbnailUrl ?? demoAlbums[0].coverUrl,
+      coverWidth: cover?.width ?? 1600,
+      coverHeight: cover?.height ?? 1200,
+      photoCount: photoIds.length || albumPhotos.length,
       photoIds,
-      location: item.location ?? undefined,
-      date: item.date ?? undefined,
+      camera: cover?.camera,
+      cameraType: cover?.cameraType,
+      lens: cover?.lens,
+      film: cover?.film,
+      filmBrand: cover?.filmBrand,
+      iso: cover?.iso,
+      takenAt: cover?.takenAt,
+      location: item.location ?? cover?.location ?? undefined,
+      date: item.date ?? cover?.takenAt?.slice(0, 10) ?? undefined,
       owner,
       visibility: item.visibility ?? "public",
       createdAt: item.created_at ?? new Date().toISOString()
@@ -193,6 +180,12 @@ function buildPhotoSelect(excludedColumns: Set<string>) {
     "original_path",
     "preview_path",
     "thumbnail_path",
+    "original_url",
+    "preview_url",
+    "thumbnail_url",
+    "file_size",
+    "mime_type",
+    "uploaded_at",
     "width",
     "height",
     "camera",
@@ -285,20 +278,36 @@ function dedupeAlbums(albums: Album[]) {
   });
 }
 
+function groupPhotosByAlbum(photos: Photo[]) {
+  const groups = new Map<string, Photo[]>();
+  for (const photo of photos) {
+    if (!photo.albumId) continue;
+    groups.set(photo.albumId, [...(groups.get(photo.albumId) ?? []), photo]);
+  }
+  return groups;
+}
+
 function mapSupabasePhoto(item: any): Photo {
   const uploader = normalizeProfile(item.profiles);
+  const originalUrl = item.original_url ?? resolveStoredUrl(item.original_path, "original") ?? demoPhotos[0].originalUrl;
+  const previewUrl = item.preview_url ?? resolveStoredUrl(item.preview_path ?? item.original_path, "preview") ?? originalUrl;
+  const thumbnailUrl = item.thumbnail_url ?? resolveStoredUrl(item.thumbnail_path ?? item.original_path, "thumbnail") ?? previewUrl;
+
   return {
     id: item.id,
     userId: item.user_id ?? uploader.id,
     albumId: item.album_id ?? item.series_id ?? undefined,
     title: item.title,
     description: item.description ?? undefined,
-    thumbnailUrl: item.thumbnail_path ? `/api/assets/thumbnails/${item.thumbnail_path}` : demoPhotos[0].thumbnailUrl,
-    previewUrl: item.preview_path ? `/api/assets/previews/${item.preview_path}` : demoPhotos[0].previewUrl,
-    originalUrl: item.original_path ? `/api/assets/originals/${item.original_path}` : demoPhotos[0].originalUrl,
+    thumbnailUrl,
+    previewUrl,
+    originalUrl,
     originalPath: item.original_path ?? undefined,
     previewPath: item.preview_path ?? undefined,
     thumbnailPath: item.thumbnail_path ?? undefined,
+    fileSize: item.file_size ?? undefined,
+    mimeType: item.mime_type ?? undefined,
+    uploadedAt: item.uploaded_at ?? undefined,
     width: item.width ?? 1600,
     height: item.height ?? 1200,
     camera: item.camera ?? undefined,
@@ -318,6 +327,27 @@ function mapSupabasePhoto(item: any): Photo {
     visibility: item.visibility ?? "public",
     createdAt: item.created_at ?? new Date().toISOString()
   };
+}
+
+function resolveStoredUrl(value: unknown, kind: "original" | "preview" | "thumbnail") {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const text = value.trim();
+  if (/^https?:\/\//i.test(text)) {
+    return text;
+  }
+
+  if (kind === "preview") {
+    return imageProcessUrl(text, "image/resize,w_2400/quality,q_86/format,jpg");
+  }
+
+  if (kind === "thumbnail") {
+    return imageProcessUrl(text, "image/resize,w_760/quality,q_78/format,jpg");
+  }
+
+  return publicObjectUrl(text);
 }
 
 function normalizeProfile(profile: any): Uploader {

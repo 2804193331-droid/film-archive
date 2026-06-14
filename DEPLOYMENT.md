@@ -9,6 +9,7 @@
 - `package.json`
 - `package-lock.json`
 - `README.md`
+- `DEPLOYMENT.md`
 - `.env.example`
 
 不要提交到 GitHub：
@@ -17,60 +18,104 @@
 - `.film-archive-config.json`
 - `node_modules/`
 - `.next/`
+- `.vercel/`
 - `uploads/`
 - `dev-server*.log`
-- `D:\FilmArchive` 里的照片文件
+- 本地照片文件
 
 ## Vercel 环境变量
 
-在 Vercel Project Settings -> Environment Variables 里配置：
+在 Vercel Project Settings -> Environment Variables 里添加：
 
 ```text
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
-SUPABASE_SERVICE_ROLE_KEY=
-APP_SESSION_SECRET=
-ADMIN_USERNAMES=
-ADMIN_USER_IDS=
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+APP_SESSION_SECRET
+ALI_OSS_ACCESS_KEY_ID
+ALI_OSS_ACCESS_KEY_SECRET
+ALI_OSS_BUCKET
+ALI_OSS_REGION
+ALI_OSS_ENDPOINT
+ALI_OSS_PUBLIC_BASE_URL
+ADMIN_USERNAMES
+ADMIN_USER_IDS
 ```
 
-`APP_SESSION_SECRET` 必须是随机长字符串。可以在本机生成：
+必填：
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+APP_SESSION_SECRET
+ALI_OSS_ACCESS_KEY_ID
+ALI_OSS_ACCESS_KEY_SECRET
+```
+
+有默认值但建议显式配置：
+
+```text
+ALI_OSS_BUCKET=film-archive-images
+ALI_OSS_REGION=cn-shanghai
+ALI_OSS_ENDPOINT=oss-cn-shanghai.aliyuncs.com
+```
+
+可选：
+
+```text
+ALI_OSS_PUBLIC_BASE_URL
+ADMIN_USERNAMES
+ADMIN_USER_IDS
+```
+
+`APP_SESSION_SECRET` 必须是随机长字符串。可以生成：
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
-`ADMIN_USERNAMES` 可以填你的登录用户名，例如：
+## Supabase 数据库迁移
+
+部署前在 Supabase SQL Editor 重新执行：
 
 ```text
-ADMIN_USERNAMES=sakura
+supabase/schema.sql
 ```
 
-## 关于本地硬盘存储
-
-当前项目把照片保存到本机硬盘，例如：
+这会为 `photos` 表补齐：
 
 ```text
-D:\FilmArchive
+original_url
+preview_url
+thumbnail_url
+file_size
+mime_type
+uploaded_at
 ```
 
-这适合本机、NAS、Mac mini、VPS 这类长期运行的机器。
+## 阿里云 OSS CORS
 
-Vercel 的运行环境不能持久保存上传文件，也不能访问你电脑的 D 盘。因此：
+Bucket 需要允许浏览器直传：
 
-- Vercel 可以部署网站代码、登录页、公开页面和数据库逻辑。
-- Vercel 不适合作为当前“本地硬盘上传存储”的最终生产环境。
-- 如果要公网稳定上传和浏览照片，需要改成 Cloudflare R2、Supabase Storage，或把 Next.js 应用部署到 NAS/VPS，并把照片盘挂载到服务器。
+```text
+AllowedOrigin:
+  https://你的-vercel-域名
+  http://localhost:3000
 
-## 本次安全加固
+AllowedMethod:
+  PUT
+  GET
+  HEAD
 
-- 生产环境必须配置 `APP_SESSION_SECRET`，不再使用固定开发密钥。
-- 存储管理接口在生产环境只允许管理员访问。
-- 普通访客不能通过接口看到服务器本地路径和磁盘容量。
-- 备份目录 `backup` 不再通过公开图片接口访问。
-- 添加基础安全响应头：`X-Content-Type-Options`、`Referrer-Policy`、`Permissions-Policy`、`X-Frame-Options`。
+AllowedHeader:
+  *
 
-## 本地验证命令
+ExposeHeader:
+  ETag
+```
+
+## 部署后验证
 
 ```bash
 npm run typecheck
@@ -78,3 +123,15 @@ npm run lint
 npm audit --omit=dev
 npm run build
 ```
+
+线上检查：
+
+- 首页不再跳 `/setup`
+- `/api/storage/status` 显示 `provider: aliyun-oss`
+- 上传页可以选择最多 100 张照片
+- 上传时进度条来自浏览器到 OSS 的 PUT 进度
+- Supabase `photos` 表能看到 OSS URL、文件大小、MIME Type、上传时间
+
+## 说明
+
+Vercel 不再接收 100MB 图片文件本体。图片从浏览器直接上传到阿里云 OSS，Vercel 只负责签名和写数据库，因此可以避开云函数请求体限制，也修复了旧本地硬盘配置导致的线上重定向问题。

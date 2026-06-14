@@ -33,7 +33,18 @@ type CustomOptionPools = {
 
 type ExifRecord = Record<string, unknown>;
 
+type SignedUpload = {
+  id: string;
+  originalKey: string;
+  uploadUrl: string;
+  mimeType: string;
+  size: number;
+  filename: string;
+};
+
 const supportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"];
+const maxFiles = 100;
+const maxFileSize = 100 * 1024 * 1024;
 const customOptionsStorageKey = "film-archive-custom-options";
 const emptyMetadata: UploadMetadata = {
   albumTitle: "",
@@ -54,11 +65,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   const [message, setMessage] = useState("");
   const [metadataStatus, setMetadataStatus] = useState("");
   const [signedIn, setSignedIn] = useState(false);
-  const [customOptions, setCustomOptions] = useState<CustomOptionPools>({
-    cameras: [],
-    lenses: [],
-    films: []
-  });
+  const [customOptions, setCustomOptions] = useState<CustomOptionPools>({ cameras: [], lenses: [], films: [] });
   const [metadata, setMetadata] = useState<UploadMetadata>(emptyMetadata);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -109,6 +116,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
     const selectionId = selectionIdRef.current + 1;
     selectionIdRef.current = selectionId;
 
+    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
     setMetadata(emptyMetadata);
     setMetadataStatus("");
     setProgress(0);
@@ -118,6 +126,21 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
       setFiles([]);
       setPreviews([]);
       setMessage(`请选择 ${supportedExtensions.join("、")} 格式的照片。`);
+      return;
+    }
+
+    if (nextFiles.length > maxFiles) {
+      setFiles([]);
+      setPreviews([]);
+      setMessage(`一次最多上传 ${maxFiles} 张照片。`);
+      return;
+    }
+
+    const oversized = nextFiles.find((file) => file.size > maxFileSize);
+    if (oversized) {
+      setFiles([]);
+      setPreviews([]);
+      setMessage(`${oversized.name} 超过 100MB。`);
       return;
     }
 
@@ -152,6 +175,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   }
 
   function resetSelectedFiles() {
+    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
     setFiles([]);
     setPreviews([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -169,54 +193,77 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
       return;
     }
 
-    const form = new FormData();
-    files.forEach((file) => form.append("files", file));
-    Object.entries(metadata).forEach(([key, value]) => form.append(key, value));
     saveCustomOptionsFromMetadata(metadata);
-
     setState("uploading");
     setProgress(0);
-    setMessage("正在上传...");
+    setMessage("正在准备 OSS 直传...");
 
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/upload");
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) {
-        setProgress(Math.round((event.loaded / event.total) * 92));
-      }
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        setState("done");
-        setProgress(100);
-        resetSelectedFiles();
-        try {
-          const body = JSON.parse(xhr.responseText) as { warning?: string; albumId?: string };
-          setMessage(body.warning ? `上传完成。${body.warning}` : "上传完成。");
-          if (body.albumId) {
-            window.setTimeout(() => {
-              window.location.href = `/album/${body.albumId}`;
-            }, 700);
-          }
-        } catch {
-          setMessage("上传完成。");
-        }
-        return;
+    try {
+      const signResponse = await fetch("/api/upload/sign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: files.map((file) => ({
+            name: file.name,
+            size: file.size,
+            type: file.type || mimeTypeFromName(file.name)
+          }))
+        })
+      });
+      const signBody = await signResponse.json().catch(() => ({}));
+      if (!signResponse.ok) {
+        throw new Error(signBody.error ?? "生成 OSS 上传签名失败。");
       }
 
-      setState("error");
-      try {
-        const body = JSON.parse(xhr.responseText);
-        setMessage(body.error ?? "上传失败，请重试。");
-      } catch {
-        setMessage("上传失败，请重试。");
+      const signedUploads = signBody.uploads as SignedUpload[];
+      const albumId = signBody.albumId as string;
+      const loadedByIndex = new Map<number, number>();
+      const totalBytes = Math.max(1, totalSize);
+
+      setMessage("正在上传到阿里云 OSS...");
+      const completed = await mapWithConcurrency(files, 3, async (file, index) => {
+        const signed = signedUploads[index];
+        await putFileToOss(file, signed, (loaded) => {
+          loadedByIndex.set(index, loaded);
+          const uploadedBytes = Array.from(loadedByIndex.values()).reduce((sum, value) => sum + value, 0);
+          setProgress(Math.min(95, Math.round((uploadedBytes / totalBytes) * 95)));
+        });
+        loadedByIndex.set(index, file.size);
+        const dimensions = await readImageDimensions(file);
+        return {
+          id: signed.id,
+          name: file.name,
+          originalKey: signed.originalKey,
+          size: file.size,
+          mimeType: signed.mimeType,
+          width: dimensions?.width,
+          height: dimensions?.height
+        };
+      });
+
+      setProgress(97);
+      setMessage("正在写入作品数据库...");
+      const completeResponse = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ albumId, metadata, files: completed })
+      });
+      const completeBody = await completeResponse.json().catch(() => ({}));
+      if (!completeResponse.ok) {
+        throw new Error(completeBody.error ?? "上传入库失败。");
       }
-    };
-    xhr.onerror = () => {
+
+      setState("done");
+      setProgress(100);
+      resetSelectedFiles();
+      setMessage("上传完成。");
+      window.setTimeout(() => {
+        window.location.href = `/album/${albumId}`;
+      }, 700);
+    } catch (error) {
       setState("error");
-      setMessage("网络或服务异常，请重试。");
-    };
-    xhr.send(form);
+      setMessage(error instanceof Error ? error.message : "上传失败，请重试。");
+    }
   }
 
   return (
@@ -263,21 +310,11 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             {metadataStatus ? <div className={styles.detectedMeta}>{metadataStatus}</div> : null}
 
             <div className={styles.dropActions}>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={disabled}
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <button className="ghost-button" type="button" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
                 <UploadCloud size={17} aria-hidden />
                 更换照片
               </button>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={disabled}
-                onClick={() => folderInputRef.current?.click()}
-              >
+              <button className="ghost-button" type="button" disabled={disabled} onClick={() => folderInputRef.current?.click()}>
                 <FolderUp size={17} aria-hidden />
                 更换文件夹
               </button>
@@ -289,21 +326,11 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             <h2>上传照片</h2>
             {!signedIn ? <div className={styles.authNotice}>请先登录。</div> : null}
             <div className={styles.dropActions}>
-              <button
-                className="button"
-                type="button"
-                disabled={disabled}
-                onClick={() => fileInputRef.current?.click()}
-              >
+              <button className="button" type="button" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
                 <UploadCloud size={17} aria-hidden />
                 选择照片
               </button>
-              <button
-                className="ghost-button"
-                type="button"
-                disabled={disabled}
-                onClick={() => folderInputRef.current?.click()}
-              >
+              <button className="ghost-button" type="button" disabled={disabled} onClick={() => folderInputRef.current?.click()}>
                 <FolderUp size={17} aria-hidden />
                 选择文件夹
               </button>
@@ -397,11 +424,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
         </label>
         <label className={styles.full}>
           备注
-          <textarea
-            className="textarea"
-            value={metadata.notes}
-            onChange={(event) => setMetadata({ ...metadata, notes: event.target.value })}
-          />
+          <textarea className="textarea" value={metadata.notes} onChange={(event) => setMetadata({ ...metadata, notes: event.target.value })} />
         </label>
 
         <datalist id="camera-list">
@@ -495,19 +518,90 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
     if (!normalized) return;
 
     setCustomOptions((current) => {
-      const next = {
-        ...current,
-        [kind]: mergeOptions(current[kind], [normalized]).slice(0, 80)
-      };
+      const next = { ...current, [kind]: mergeOptions(current[kind], [normalized]).slice(0, 80) };
       writeCustomOptions(next);
       return next;
     });
   }
 }
 
+function putFileToOss(file: File, signed: SignedUpload, onProgress: (loaded: number) => void) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", signed.uploadUrl);
+    xhr.setRequestHeader("Content-Type", signed.mimeType);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress(event.loaded);
+      }
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      reject(new Error(`OSS 上传失败：${file.name}`));
+    };
+    xhr.onerror = () => reject(new Error("OSS 上传失败，请检查 Bucket CORS 设置。"));
+    xhr.send(file);
+  });
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>) {
+  const results: R[] = [];
+  let nextIndex = 0;
+
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return results;
+}
+
+function readImageDimensions(file: File) {
+  return new Promise<{ width: number; height: number } | undefined>((resolve) => {
+    if (!file.type.startsWith("image/")) {
+      resolve(undefined);
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    const timer = window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      resolve(undefined);
+    }, 3000);
+
+    image.onload = () => {
+      window.clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      window.clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve(undefined);
+    };
+    image.src = url;
+  });
+}
+
 function isSupportedImage(file: File) {
   const lowerName = file.name.toLowerCase();
   return supportedExtensions.some((extension) => lowerName.endsWith(extension));
+}
+
+function mimeTypeFromName(name: string) {
+  const lowerName = name.toLowerCase();
+  if (lowerName.endsWith(".png")) return "image/png";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".tif") || lowerName.endsWith(".tiff")) return "image/tiff";
+  return "image/jpeg";
 }
 
 function metadataFromExif(exif: ExifRecord): Partial<UploadMetadata> {
@@ -517,25 +611,11 @@ function metadataFromExif(exif: ExifRecord): Partial<UploadMetadata> {
   const date = exif.DateTimeOriginal instanceof Date ? formatDateInput(exif.DateTimeOriginal) : "";
   const description = readFirstText(exif.ImageDescription, exif.UserComment, exif.Caption);
 
-  return {
-    camera,
-    lens,
-    film,
-    iso: formatNumber(exif.ISO),
-    takenAt: date,
-    notes: description
-  };
+  return { camera, lens, film, iso: formatNumber(exif.ISO), takenAt: date, notes: description };
 }
 
 function inferFilmFromExif(exif: ExifRecord) {
-  const text = [
-    exif.ImageDescription,
-    exif.UserComment,
-    exif.Caption,
-    exif.Subject,
-    exif.Keywords,
-    exif.Software
-  ]
+  const text = [exif.ImageDescription, exif.UserComment, exif.Caption, exif.Subject, exif.Keywords, exif.Software]
     .flatMap((value) => (Array.isArray(value) ? value : [value]))
     .filter(Boolean)
     .join(" ")

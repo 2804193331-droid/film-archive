@@ -1,107 +1,163 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import exifr from "exifr";
-import sharp from "sharp";
+import { z } from "zod";
 import { getAppSessionFromRequest } from "@/lib/app-session";
 import { isAdminUser } from "@/lib/admin";
 import { cameras } from "@/lib/catalog";
 import {
-  assertLocalAlbumEditable,
-  deleteLocalAlbum,
-  updateLocalAlbum,
-  type LocalAlbumUpdate,
-  type LocalPhotoRecord
-} from "@/lib/local-library";
+  deleteOssObjects,
+  imageProcessUrl,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES,
+  publicObjectUrl,
+  safeOssObjectKey
+} from "@/lib/oss";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { ensureStorageStructure, getConfiguredUploadDir, getStorageStatus } from "@/lib/storage";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 120 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"]);
+type AlbumUpdate = {
+  title: string;
+  camera?: string;
+  lens?: string;
+  film?: string;
+  iso?: number;
+  taken_at?: string;
+  location?: string;
+  notes?: string;
+};
 
-export async function PATCH(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
+type PhotoInsert = {
+  id: string;
+  user_id: string;
+  album_id: string;
+  series_id: string;
+  title: string;
+  original_path: string;
+  preview_path: string;
+  thumbnail_path: string;
+  original_url: string;
+  preview_url: string;
+  thumbnail_url: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_at: string;
+  width?: number;
+  height?: number;
+  camera?: string;
+  camera_type?: "135" | "120" | "digital";
+  lens?: string;
+  film?: string;
+  film_brand?: string;
+  iso?: number;
+  taken_at?: string;
+  location?: string;
+  notes?: string;
+  visibility: "public";
+};
+
+const uploadedFileSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(260),
+  originalKey: z.string().min(1).max(1024),
+  size: z.number().positive().max(MAX_UPLOAD_BYTES),
+  mimeType: z.string().min(1).max(120),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional()
+});
+
+const patchSchema = z.object({
+  title: z.string().optional(),
+  camera: z.string().optional(),
+  lens: z.string().optional(),
+  film: z.string().optional(),
+  iso: z.string().optional(),
+  takenAt: z.string().optional(),
+  location: z.string().optional(),
+  notes: z.string().optional(),
+  files: z.array(uploadedFileSchema).max(MAX_UPLOAD_FILES).optional()
+});
+
+export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const session = getAppSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "请先登录。" }, { status: 401 });
   }
 
-  const status = await getStorageStatus();
-  const uploadDir = await getConfiguredUploadDir();
-  if (!uploadDir || !status.configured || !status.online || status.readOnly) {
-    return NextResponse.json({ error: "照片存储硬盘未连接，当前不能编辑。" }, { status: 423 });
+  const supabase = createSupabaseAdminClient();
+  if (!supabase) {
+    return NextResponse.json({ error: "请先配置 Supabase。" }, { status: 503 });
   }
 
   const { id } = await context.params;
+  const body = await readPatchPayload(request);
+  const parsed = patchSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "编辑信息无效。" }, { status: 400 });
+  }
+
   const isAdmin = isAdminUser(session.id, session.username);
 
   try {
-    const { updates, files } = await readPatchPayload(request, session.displayName || session.username);
-    const access = await assertLocalAlbumEditable({
-      uploadDir,
-      albumId: id,
-      userId: session.id,
-      isAdmin
-    });
-
-    if (access.missing) {
+    const existing = await getEditableSeries(supabase, id, session.id, isAdmin);
+    if (!existing) {
       return NextResponse.json({ error: "没有找到这个作品组。" }, { status: 404 });
     }
 
-    if (files.length) {
-      await ensureStorageStructure(uploadDir);
+    const updates = parseAlbumUpdate(parsed.data, session.displayName || session.username);
+    const albumPayload = stripUndefinedValues({
+      title: updates.title,
+      description: updates.notes ?? "",
+      location: updates.location,
+      date: updates.taken_at?.slice(0, 10)
+    });
+
+    let albumUpdate = supabase.from("albums").update(albumPayload).eq("id", id);
+    if (!isAdmin) albumUpdate = albumUpdate.eq("user_id", session.id);
+    await albumUpdate;
+
+    let seriesUpdate = supabase.from("series").update(albumPayload).eq("id", id);
+    if (!isAdmin) seriesUpdate = seriesUpdate.eq("owner_id", session.id);
+    await seriesUpdate;
+
+    const photoPayload = stripUndefinedValues({
+      camera: updates.camera,
+      camera_type: inferCameraType(updates.camera),
+      lens: updates.lens,
+      film: updates.film,
+      film_brand: updates.film ? updates.film.split(" ")[0] : undefined,
+      iso: updates.iso,
+      taken_at: updates.taken_at,
+      location: updates.location,
+      notes: updates.notes
+    });
+
+    if (Object.keys(photoPayload).length) {
+      let photoUpdate = supabase.from("photos").update(photoPayload).eq("series_id", id);
+      if (!isAdmin) photoUpdate = photoUpdate.eq("user_id", session.id);
+      await photoUpdate;
     }
 
+    const files = parsed.data.files ?? [];
     const createdAt = new Date().toISOString();
-    const newPhotos: LocalPhotoRecord[] = [];
-    for (const file of files) {
-      newPhotos.push(
-        await processAdditionalPhoto({
-          file,
-          uploadDir,
-          albumId: id,
-          userId: session.id,
-          user: {
-            id: session.id,
-            username: session.username,
-            displayName: session.displayName,
-            avatarUrl: session.avatarUrl
-          },
-          updates,
-          createdAt
-        })
-      );
+    const newPhotos = files.map((file) =>
+      createPhotoInsert({
+        albumId: id,
+        file,
+        updates,
+        userId: session.id,
+        createdAt
+      })
+    );
+
+    if (newPhotos.length) {
+      await insertPhotosWithSchemaFallback(supabase, newPhotos);
+      await insertSeriesPhotosSafely(supabase, id, newPhotos, existing.photoCount);
+      await updateCoverIfMissing(supabase, id, newPhotos[0].thumbnail_url, session.id, isAdmin);
     }
 
-    const result = await updateLocalAlbum({
-      uploadDir,
-      albumId: id,
-      userId: session.id,
-      updates,
-      newPhotos,
-      isAdmin
-    });
-
-    if (result.missing) {
-      return NextResponse.json({ error: "没有找到这个作品组。" }, { status: 404 });
-    }
-
-    const warning = await updateSupabaseAlbum({
-      albumId: id,
-      userId: session.id,
-      updates,
-      newPhotos,
-      existingPhotoCount: Math.max(0, (result.album?.photoCount ?? newPhotos.length) - newPhotos.length),
-      isAdmin
-    });
-
-    return NextResponse.json({ ok: true, album: result.album, addedPhotos: newPhotos.length, warning });
+    return NextResponse.json({ ok: true, addedPhotos: newPhotos.length });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "编辑失败。" },
@@ -110,43 +166,50 @@ export async function PATCH(
   }
 }
 
-export async function DELETE(
-  request: NextRequest,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function DELETE(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const session = getAppSessionFromRequest(request);
   if (!session) {
     return NextResponse.json({ error: "请先登录。" }, { status: 401 });
   }
 
-  const status = await getStorageStatus();
-  const uploadDir = await getConfiguredUploadDir();
-  if (!uploadDir || !status.configured || !status.online || status.readOnly) {
-    return NextResponse.json({ error: "照片存储硬盘未连接，当前不能删除。" }, { status: 423 });
+  const supabase = createSupabaseAdminClient();
+  if (!supabase) {
+    return NextResponse.json({ error: "请先配置 Supabase。" }, { status: 503 });
   }
 
   const { id } = await context.params;
   const isAdmin = isAdminUser(session.id, session.username);
 
   try {
-    const result = await deleteLocalAlbum({
-      uploadDir,
-      albumId: id,
-      userId: session.id,
-      isAdmin
-    });
-
-    if (result.missing) {
+    const existing = await getEditableSeries(supabase, id, session.id, isAdmin);
+    if (!existing) {
       return NextResponse.json({ error: "没有找到这个作品组。" }, { status: 404 });
     }
 
-    await deleteSupabaseAlbum({
-      albumId: id,
-      userId: session.id,
-      isAdmin
-    });
+    const { data: photos } = await supabase
+      .from("photos")
+      .select("id,original_path")
+      .eq("series_id", id);
 
-    return NextResponse.json({ ok: true, deletedPhotos: result.deletedPhotos });
+    const photoIds = (photos ?? []).map((photo: { id: string }) => photo.id);
+    await deleteOssObjects((photos ?? []).map((photo: { original_path?: string }) => photo.original_path));
+
+    if (photoIds.length) {
+      await supabase.from("series_photos").delete().eq("series_id", id);
+      let photoDelete = supabase.from("photos").delete().in("id", photoIds);
+      if (!isAdmin) photoDelete = photoDelete.eq("user_id", session.id);
+      await photoDelete;
+    }
+
+    let albumDelete = supabase.from("albums").delete().eq("id", id);
+    if (!isAdmin) albumDelete = albumDelete.eq("user_id", session.id);
+    await albumDelete;
+
+    let seriesDelete = supabase.from("series").delete().eq("id", id);
+    if (!isAdmin) seriesDelete = seriesDelete.eq("owner_id", session.id);
+    await seriesDelete;
+
+    return NextResponse.json({ ok: true, deletedPhotos: photoIds.length });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "删除失败。" },
@@ -155,252 +218,101 @@ export async function DELETE(
   }
 }
 
-async function deleteSupabaseAlbum({
-  albumId,
-  userId,
-  isAdmin
-}: {
-  albumId: string;
-  userId: string;
-  isAdmin: boolean;
-}) {
-  const supabase = createSupabaseAdminClient();
-  if (!supabase) {
-    return;
-  }
-
-  let photoDelete = supabase.from("photos").delete().eq("series_id", albumId);
-  if (!isAdmin) {
-    photoDelete = photoDelete.eq("user_id", userId);
-  }
-  await photoDelete;
-
-  let photoDeleteByAlbum = supabase.from("photos").delete().eq("album_id", albumId);
-  if (!isAdmin) {
-    photoDeleteByAlbum = photoDeleteByAlbum.eq("user_id", userId);
-  }
-  await photoDeleteByAlbum;
-
-  let albumDelete = supabase.from("albums").delete().eq("id", albumId);
-  if (!isAdmin) {
-    albumDelete = albumDelete.eq("user_id", userId);
-  }
-  await albumDelete;
-
-  let seriesDelete = supabase.from("series").delete().eq("id", albumId);
-  if (!isAdmin) {
-    seriesDelete = seriesDelete.eq("owner_id", userId);
-  }
-  await seriesDelete;
-}
-
-async function updateSupabaseAlbum({
-  albumId,
-  userId,
-  updates,
-  newPhotos,
-  existingPhotoCount,
-  isAdmin
-}: {
-  albumId: string;
-  userId: string;
-  updates: LocalAlbumUpdate;
-  newPhotos: LocalPhotoRecord[];
-  existingPhotoCount: number;
-  isAdmin: boolean;
-}) {
-  const supabase = createSupabaseAdminClient();
-  if (!supabase) {
-    return "Supabase 未配置，已保存到本地索引。";
-  }
-
-  const albumPayload = stripUndefinedValues({
-    title: updates.title,
-    description: updates.notes ?? "",
-    location: updates.location,
-    date: updates.taken_at?.slice(0, 10)
-  });
-
-  const photoPayload = stripUndefinedValues({
-    camera: updates.camera,
-    lens: updates.lens,
-    film: updates.film,
-    film_brand: updates.film ? updates.film.split(" ")[0] : undefined,
-    iso: updates.iso,
-    taken_at: updates.taken_at,
-    location: updates.location,
-    notes: updates.notes
-  });
-
-  try {
-    let albumUpdate = supabase.from("albums").update(albumPayload).eq("id", albumId);
-    if (!isAdmin) {
-      albumUpdate = albumUpdate.eq("user_id", userId);
-    }
-    await albumUpdate;
-
-    let seriesUpdate = supabase.from("series").update(albumPayload).eq("id", albumId);
-    if (!isAdmin) {
-      seriesUpdate = seriesUpdate.eq("owner_id", userId);
-    }
-    await seriesUpdate;
-
-    if (Object.keys(photoPayload).length) {
-      let photoUpdate = supabase.from("photos").update(photoPayload).eq("series_id", albumId);
-      if (!isAdmin) {
-        photoUpdate = photoUpdate.eq("user_id", userId);
-      }
-      await photoUpdate;
-
-      let photoAlbumUpdate = supabase.from("photos").update(photoPayload).eq("album_id", albumId);
-      if (!isAdmin) {
-        photoAlbumUpdate = photoAlbumUpdate.eq("user_id", userId);
-      }
-      await photoAlbumUpdate;
-    }
-
-    if (newPhotos.length) {
-      await insertPhotosWithSchemaFallback(supabase, newPhotos.map(toSupabasePhotoRecord));
-      await insertSeriesPhotosSafely(supabase, albumId, newPhotos, existingPhotoCount);
-    }
-
-    return undefined;
-  } catch (error) {
-    return error instanceof Error ? `Supabase 同步失败，本地已保存：${error.message}` : "Supabase 同步失败，本地已保存。";
-  }
-}
-
-async function readPatchPayload(request: NextRequest, fallbackTitle: string) {
+async function readPatchPayload(request: NextRequest) {
   const contentType = request.headers.get("content-type") ?? "";
   if (contentType.includes("multipart/form-data")) {
     const form = await request.formData();
-    return {
-      updates: parseAlbumUpdate(form, fallbackTitle),
-      files: form.getAll("files").filter((value): value is File => value instanceof File)
-    };
+    return Object.fromEntries(form.entries());
   }
 
-  const body = await request.json().catch(() => ({}));
+  return request.json().catch(() => ({}));
+}
+
+async function getEditableSeries(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  userId: string,
+  isAdmin: boolean
+) {
+  let query = supabase
+    .from("series")
+    .select("id,owner_id,series_photos(photo_id)")
+    .eq("id", albumId);
+
+  if (!isAdmin) {
+    query = query.eq("owner_id", userId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) {
+    return null;
+  }
+
   return {
-    updates: parseAlbumUpdate(body, fallbackTitle),
-    files: []
+    id: data.id as string,
+    ownerId: data.owner_id as string,
+    photoCount: Array.isArray(data.series_photos) ? data.series_photos.length : 0
   };
 }
 
-async function processAdditionalPhoto({
-  file,
-  uploadDir,
+function createPhotoInsert({
   albumId,
-  userId,
-  user,
+  file,
   updates,
+  userId,
   createdAt
 }: {
-  file: File;
-  uploadDir: string;
   albumId: string;
+  file: z.infer<typeof uploadedFileSchema>;
+  updates: AlbumUpdate;
   userId: string;
-  user: LocalPhotoRecord["uploader"];
-  updates: LocalAlbumUpdate;
   createdAt: string;
-}): Promise<LocalPhotoRecord> {
-  const extension = path.extname(file.name).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(extension)) {
-    throw new Error(`${file.name} 格式不支持。`);
+}): PhotoInsert {
+  const originalKey = safeOssObjectKey(file.originalKey);
+  if (!originalKey || !originalKey.startsWith(`originals/${userId}/`) || !originalKey.includes(`/${albumId}/`)) {
+    throw new Error(`${file.name} 的 OSS 对象路径无效。`);
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`${file.name} 超过 120MB 服务端限制。`);
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const now = new Date();
-  const year = String(now.getFullYear());
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const id = randomUUID();
-  const originalPath = `${year}/${month}/${id}${extension}`;
-  const previewPath = `${year}/${month}/${id}.jpg`;
-  const thumbnailPath = `${year}/${month}/${id}.jpg`;
-
-  await Promise.all(
-    ["originals", "previews", "thumbnails", "backup"].map((kind) =>
-      fs.mkdir(path.join(uploadDir, kind, year, month), { recursive: true })
-    )
-  );
-
-  const originalFile = path.join(uploadDir, "originals", year, month, `${id}${extension}`);
-  const previewFile = path.join(uploadDir, "previews", year, month, `${id}.jpg`);
-  const thumbnailFile = path.join(uploadDir, "thumbnails", year, month, `${id}.jpg`);
-  const backupFile = path.join(uploadDir, "backup", year, month, `${id}${extension}`);
-
-  const image = sharp(buffer, { failOn: "none" }).rotate();
-  const metadata = await image.metadata();
-  const exif = await exifr.parse(buffer).catch(() => null);
-  const camera = updates.camera || joinCamera(exif?.Make, exif?.Model);
-  const lens = updates.lens || exif?.LensModel || exif?.Lens;
   const film = updates.film;
 
-  await Promise.all([
-    fs.writeFile(originalFile, buffer),
-    fs.writeFile(backupFile, buffer),
-    sharp(buffer, { failOn: "none" })
-      .rotate()
-      .resize({ width: 2400, withoutEnlargement: true })
-      .jpeg({ quality: 86 })
-      .toFile(previewFile),
-    sharp(buffer, { failOn: "none" })
-      .rotate()
-      .resize({ width: 760, withoutEnlargement: true })
-      .jpeg({ quality: 78 })
-      .toFile(thumbnailFile)
-  ]);
-
   return {
-    id,
+    id: file.id,
     user_id: userId,
     album_id: albumId,
     series_id: albumId,
     title: filenameTitle(file.name),
-    original_path: originalPath,
-    preview_path: previewPath,
-    thumbnail_path: thumbnailPath,
-    width: metadata.width,
-    height: metadata.height,
-    camera: camera || undefined,
-    camera_type: inferCameraType(camera),
-    lens: lens || undefined,
-    film: film || undefined,
+    original_path: originalKey,
+    preview_path: originalKey,
+    thumbnail_path: originalKey,
+    original_url: publicObjectUrl(originalKey),
+    preview_url: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
+    thumbnail_url: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
+    file_size: file.size,
+    mime_type: file.mimeType,
+    uploaded_at: createdAt,
+    width: file.width,
+    height: file.height,
+    camera: updates.camera,
+    camera_type: inferCameraType(updates.camera),
+    lens: updates.lens,
+    film,
     film_brand: film ? film.split(" ")[0] : undefined,
-    iso: updates.iso ?? readExifNumber(exif?.ISO),
-    aperture: exif?.FNumber ? `f/${trimNumber(exif.FNumber)}` : undefined,
-    shutter_speed: formatExposure(exif?.ExposureTime),
-    focal_length: exif?.FocalLength ? `${trimNumber(exif.FocalLength)}mm` : undefined,
-    taken_at: updates.taken_at || (exif?.DateTimeOriginal instanceof Date ? exif.DateTimeOriginal.toISOString() : undefined),
+    iso: updates.iso,
+    taken_at: updates.taken_at,
     location: updates.location,
-    scanner: exif?.Software,
     notes: updates.notes,
-    visibility: "public",
-    created_at: createdAt,
-    uploader: user
+    visibility: "public"
   };
 }
 
 async function insertPhotosWithSchemaFallback(
   supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
-  records: Record<string, unknown>[]
+  records: PhotoInsert[]
 ) {
   let insertRecords = records.map(stripUndefinedValues);
-  const requiredColumns = new Set([
-    "id",
-    "user_id",
-    "title",
-    "original_path",
-    "preview_path",
-    "thumbnail_path",
-    "visibility"
-  ]);
+  const requiredColumns = new Set(["id", "user_id", "title", "original_path", "preview_path", "thumbnail_path", "visibility"]);
 
-  for (let attempt = 0; attempt < 24; attempt += 1) {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
     const { error } = await supabase.from("photos").insert(insertRecords);
     if (!error) return;
 
@@ -422,52 +334,48 @@ async function insertPhotosWithSchemaFallback(
 async function insertSeriesPhotosSafely(
   supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
   seriesId: string,
-  records: LocalPhotoRecord[],
+  records: PhotoInsert[],
   startPosition: number
 ) {
   const { error } = await supabase
     .from("series_photos")
-    .insert(
-      records.map((record, index) => ({
-        series_id: seriesId,
-        photo_id: record.id,
-        position: startPosition + index + 1
-      }))
-    );
+    .insert(records.map((record, index) => ({ series_id: seriesId, photo_id: record.id, position: startPosition + index + 1 })));
 
   if (error) {
     throw new Error(error.message);
   }
 }
 
-function toSupabasePhotoRecord(record: LocalPhotoRecord) {
-  const { uploader: _uploader, created_at: _createdAt, ...photoRecord } = record;
-  return photoRecord;
+async function updateCoverIfMissing(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  coverUrl: string,
+  userId: string,
+  isAdmin: boolean
+) {
+  let albumUpdate = supabase.from("albums").update({ cover_path: coverUrl }).eq("id", albumId).is("cover_path", null);
+  if (!isAdmin) albumUpdate = albumUpdate.eq("user_id", userId);
+  await albumUpdate;
+
+  let seriesUpdate = supabase.from("series").update({ cover_path: coverUrl }).eq("id", albumId).is("cover_path", null);
+  if (!isAdmin) seriesUpdate = seriesUpdate.eq("owner_id", userId);
+  await seriesUpdate;
 }
 
-function extractMissingPhotoColumn(message: string) {
-  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
-}
-
-function parseAlbumUpdate(value: unknown, fallbackTitle = ""): LocalAlbumUpdate {
-  const source = value instanceof FormData
-    ? Object.fromEntries(value.entries())
-    : typeof value === "object" && value
-      ? (value as Record<string, unknown>)
-      : {};
-  const takenAt = normalizeDateInput(readString(source.takenAt));
-  const iso = Number(readString(source.iso));
-  const title = readString(source.title) || fallbackTitle;
+function parseAlbumUpdate(value: z.infer<typeof patchSchema>, fallbackTitle = ""): AlbumUpdate {
+  const takenAt = normalizeDateInput(value.takenAt);
+  const iso = Number(readString(value.iso));
+  const title = readString(value.title) || fallbackTitle;
 
   return {
     title,
-    camera: readOptionalString(source.camera),
-    lens: readOptionalString(source.lens),
-    film: readOptionalString(source.film),
+    camera: readOptionalString(value.camera),
+    lens: readOptionalString(value.lens),
+    film: readOptionalString(value.film),
     iso: Number.isFinite(iso) && iso > 0 ? iso : undefined,
     taken_at: takenAt,
-    location: readOptionalString(source.location),
-    notes: readOptionalString(source.notes)
+    location: readOptionalString(value.location),
+    notes: readOptionalString(value.notes)
   };
 }
 
@@ -480,28 +388,21 @@ function readOptionalString(value: unknown) {
   return text || undefined;
 }
 
-function normalizeDateInput(value: string) {
-  if (!value) {
+function normalizeDateInput(value?: string) {
+  const text = readString(value);
+  if (!text) {
     return undefined;
   }
 
-  const date = new Date(`${value}T00:00:00.000Z`);
+  const date = new Date(`${text}T00:00:00.000Z`);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
-}
-
-function stripUndefinedValues(record: Record<string, unknown>) {
-  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
 function filenameTitle(filename: string) {
   return path.basename(filename, path.extname(filename)).replace(/[-_]+/g, " ");
 }
 
-function joinCamera(make?: string, model?: string) {
-  return [make, model].filter(Boolean).join(" ").trim();
-}
-
-function inferCameraType(camera?: string): LocalPhotoRecord["camera_type"] {
+function inferCameraType(camera?: string): PhotoInsert["camera_type"] {
   if (!camera) {
     return undefined;
   }
@@ -517,22 +418,10 @@ function inferCameraType(camera?: string): LocalPhotoRecord["camera_type"] {
   return "digital";
 }
 
-function readExifNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function stripUndefinedValues(record: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
-function trimNumber(value: number) {
-  return Number(value.toFixed(2)).toString();
-}
-
-function formatExposure(value: unknown) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-
-  if (value >= 1) {
-    return `${trimNumber(value)}s`;
-  }
-
-  return `1/${Math.round(1 / value)}`;
+function extractMissingPhotoColumn(message: string) {
+  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
 }

@@ -1,338 +1,227 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import exifr from "exifr";
-import sharp from "sharp";
+import { z } from "zod";
 import { getAppSessionFromRequest } from "@/lib/app-session";
 import { cameras } from "@/lib/catalog";
 import {
-  appendLocalAlbumWithPhotos,
-  type LocalAlbumRecord,
-  type LocalPhotoRecord
-} from "@/lib/local-library";
-import { createSupabaseAdminClient, getUserFromBearerToken } from "@/lib/supabase";
-import { ensureStorageStructure, getConfiguredUploadDir, getStorageStatus } from "@/lib/storage";
+  imageProcessUrl,
+  MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_FILES,
+  publicObjectUrl,
+  safeOssObjectKey
+} from "@/lib/oss";
+import { createSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
-const MAX_FILE_SIZE = 120 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"]);
-
-type UploadRecord = Omit<LocalPhotoRecord, "created_at" | "uploader"> & {
+type UploadRecord = {
+  id: string;
+  user_id: string;
+  album_id: string;
+  series_id: string;
+  title: string;
+  original_path: string;
+  preview_path: string;
+  thumbnail_path: string;
+  original_url: string;
+  preview_url: string;
+  thumbnail_url: string;
+  file_size: number;
+  mime_type: string;
+  uploaded_at: string;
+  width?: number;
+  height?: number;
+  camera?: string;
+  camera_type?: "135" | "120" | "digital";
+  lens?: string;
+  film?: string;
+  film_brand?: string;
+  iso?: number;
+  aperture?: string;
+  shutter_speed?: string;
+  focal_length?: string;
+  taken_at?: string;
+  location?: string;
+  scanner?: string;
+  notes?: string;
   visibility: "public";
 };
 
+type UploadMetadata = {
+  albumTitle?: string;
+  camera?: string;
+  lens?: string;
+  film?: string;
+  iso?: string;
+  takenAt?: string;
+  location?: string;
+  notes?: string;
+};
+
+const completedFileSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1).max(260),
+  originalKey: z.string().min(1).max(1024),
+  size: z.number().positive().max(MAX_UPLOAD_BYTES),
+  mimeType: z.string().min(1).max(120),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional()
+});
+
+const uploadCompleteSchema = z.object({
+  albumId: z.string().uuid(),
+  metadata: z
+    .object({
+      albumTitle: z.string().optional(),
+      camera: z.string().optional(),
+      lens: z.string().optional(),
+      film: z.string().optional(),
+      iso: z.string().optional(),
+      takenAt: z.string().optional(),
+      location: z.string().optional(),
+      notes: z.string().optional()
+    })
+    .optional(),
+  files: z.array(completedFileSchema).min(1).max(MAX_UPLOAD_FILES)
+});
+
 export async function POST(request: NextRequest) {
-  const status = await getStorageStatus();
-  if (!status.configured || !status.online || status.readOnly) {
-    return NextResponse.json({ error: "照片存储硬盘未连接或不可写。" }, { status: 423 });
-  }
-
-  const bearerUser = await getUserFromBearerToken(request.headers.get("authorization"));
-  const cookieUser = getAppSessionFromRequest(request);
-  const user = bearerUser
-    ? {
-        id: bearerUser.id,
-        username: bearerUser.user_metadata?.username ?? bearerUser.email?.split("@")[0] ?? "user",
-        displayName:
-          bearerUser.user_metadata?.display_name ??
-          bearerUser.user_metadata?.username ??
-          bearerUser.email?.split("@")[0] ??
-          "Film User",
-        avatarUrl: bearerUser.user_metadata?.avatar_url
-      }
-    : cookieUser;
-
+  const user = getAppSessionFromRequest(request);
   if (!user) {
     return NextResponse.json({ error: "请先登录后再上传。" }, { status: 401 });
   }
 
-  const uploadDir = await getConfiguredUploadDir();
-  if (!uploadDir) {
-    return NextResponse.json({ error: "存储目录未配置。" }, { status: 503 });
+  const supabase = createSupabaseAdminClient();
+  if (!supabase) {
+    return NextResponse.json({ error: "请先配置 Supabase，照片信息需要写入数据库。" }, { status: 503 });
   }
 
-  const form = await request.formData();
-  const files = form.getAll("files").filter((value): value is File => value instanceof File);
-  if (!files.length) {
-    return NextResponse.json({ error: "没有收到照片文件。" }, { status: 400 });
+  const body = await request.json().catch(() => null);
+  const parsed = uploadCompleteSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: "上传完成信息无效。" }, { status: 400 });
   }
-
-  await ensureStorageStructure(uploadDir);
 
   try {
-    const albumId = randomUUID();
-    const albumTitle = readAlbumTitle(form, user.displayName || user.username);
-    const records: UploadRecord[] = [];
-
-    for (const file of files) {
-      records.push(
-        await processFile({
-          file,
-          form,
-          uploadDir,
-          userId: user.id,
-          albumId,
-          filesCount: files.length
-        })
-      );
-    }
-
+    const metadata = normalizeMetadata(parsed.data.metadata);
     const createdAt = new Date().toISOString();
-    const album = createLocalAlbum({
-      id: albumId,
-      title: albumTitle,
-      form,
-      records,
-      user,
-      createdAt
-    });
-
-    await appendLocalAlbumWithPhotos(
-      uploadDir,
-      album,
-      records.map(
-        (record): LocalPhotoRecord => ({
-          ...record,
-          created_at: createdAt,
-          uploader: user
-        })
-      )
+    const albumTitle = readAlbumTitle(metadata, user.displayName || user.username);
+    const records = parsed.data.files.map((file) =>
+      createUploadRecord({
+        albumId: parsed.data.albumId,
+        file,
+        metadata,
+        userId: user.id,
+        createdAt
+      })
     );
 
-    const supabase = createSupabaseAdminClient();
-    let databaseSynced = false;
-    let warning: string | undefined;
+    const cover = records[0];
+    const albumPayload = {
+      id: parsed.data.albumId,
+      user_id: user.id,
+      title: albumTitle,
+      description: metadata.notes ?? "",
+      cover_path: cover.thumbnail_url,
+      location: metadata.location,
+      date: cover.taken_at?.slice(0, 10),
+      visibility: "public"
+    };
 
-    if (supabase) {
-      try {
-        const albumSynced = await upsertAlbumSafely({
-          album,
-          supabase
-        });
-        await upsertSeriesSafely({
-          album,
-          supabase
-        });
-        await insertPhotosWithSchemaFallback(
-          supabase,
-          albumSynced ? records : records.map(removeAlbumId)
-        );
-        await insertSeriesPhotosSafely(supabase, album.id, records);
-        databaseSynced = true;
-      } catch (error) {
-        warning =
-          error instanceof Error
-            ? `Supabase 同步失败，已保存到本地索引：${error.message}`
-            : "Supabase 同步失败，已保存到本地索引。";
-      }
-    } else {
-      warning = "Supabase Service Role 未配置，已保存到本地索引。";
-    }
+    const seriesPayload = {
+      id: parsed.data.albumId,
+      owner_id: user.id,
+      title: albumTitle,
+      description: metadata.notes ?? "",
+      cover_path: cover.thumbnail_url,
+      location: metadata.location,
+      date: cover.taken_at?.slice(0, 10),
+      visibility: "public"
+    };
+
+    await upsertAlbumSafely(supabase, albumPayload);
+    await upsertSeriesSafely(supabase, seriesPayload);
+    await insertPhotosWithSchemaFallback(supabase, records);
+    await insertSeriesPhotosSafely(supabase, parsed.data.albumId, records);
 
     return NextResponse.json({
       uploaded: records.length,
-      albumId,
-      databaseSynced,
-      warning
+      albumId: parsed.data.albumId,
+      urls: records.map((record) => record.original_url)
     });
   } catch (error) {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "上传处理失败。" },
+      { error: error instanceof Error ? error.message : "上传入库失败。" },
       { status: 400 }
     );
   }
 }
 
-async function processFile({
-  file,
-  form,
-  uploadDir,
-  userId,
+function createUploadRecord({
   albumId,
-  filesCount
+  file,
+  metadata,
+  userId,
+  createdAt
 }: {
-  file: File;
-  form: FormData;
-  uploadDir: string;
-  userId: string;
   albumId: string;
-  filesCount: number;
-}): Promise<UploadRecord> {
-  const extension = path.extname(file.name).toLowerCase();
-  if (!ALLOWED_EXTENSIONS.has(extension)) {
-    throw new Error(`${file.name} 格式不支持。`);
+  file: z.infer<typeof completedFileSchema>;
+  metadata: UploadMetadata;
+  userId: string;
+  createdAt: string;
+}): UploadRecord {
+  const originalKey = safeOssObjectKey(file.originalKey);
+  if (!originalKey || !originalKey.startsWith(`originals/${userId}/`) || !originalKey.includes(`/${albumId}/`)) {
+    throw new Error(`${file.name} 的 OSS 对象路径无效。`);
   }
 
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error(`${file.name} 超过 120MB 服务端限制。`);
-  }
-
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const now = new Date();
-  const year = String(now.getFullYear());
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const id = randomUUID();
-  const originalPath = `${year}/${month}/${id}${extension}`;
-  const previewPath = `${year}/${month}/${id}.jpg`;
-  const thumbnailPath = `${year}/${month}/${id}.jpg`;
-
-  await Promise.all(
-    ["originals", "previews", "thumbnails", "backup"].map((kind) =>
-      fs.mkdir(path.join(uploadDir, kind, year, month), { recursive: true })
-    )
-  );
-
-  const originalFile = path.join(uploadDir, "originals", year, month, `${id}${extension}`);
-  const previewFile = path.join(uploadDir, "previews", year, month, `${id}.jpg`);
-  const thumbnailFile = path.join(uploadDir, "thumbnails", year, month, `${id}.jpg`);
-  const backupFile = path.join(uploadDir, "backup", year, month, `${id}${extension}`);
-
-  const image = sharp(buffer, { failOn: "none" }).rotate();
-  const metadata = await image.metadata();
-
-  await Promise.all([
-    fs.writeFile(originalFile, buffer),
-    fs.writeFile(backupFile, buffer),
-    sharp(buffer, { failOn: "none" })
-      .rotate()
-      .resize({ width: 2400, withoutEnlargement: true })
-      .jpeg({ quality: 86 })
-      .toFile(previewFile),
-    sharp(buffer, { failOn: "none" })
-      .rotate()
-      .resize({ width: 760, withoutEnlargement: true })
-      .jpeg({ quality: 78 })
-      .toFile(thumbnailFile)
-  ]);
-
-  const exif = await exifr.parse(buffer).catch(() => null);
-  const camera = readFormText(form, "camera") || joinCamera(exif?.Make, exif?.Model);
-  const lens = readFormText(form, "lens") || exif?.LensModel || exif?.Lens;
-  const film = readFormText(form, "film");
-  const title = filesCount === 1 ? readFormText(form, "title") || filenameTitle(file.name) : filenameTitle(file.name);
-  const manualTakenAt = normalizeDateInput(readFormText(form, "takenAt"));
+  const camera = metadata.camera;
+  const film = metadata.film;
+  const takenAt = normalizeDateInput(metadata.takenAt);
 
   return {
-    id,
+    id: file.id,
     user_id: userId,
     album_id: albumId,
     series_id: albumId,
-    title,
-    original_path: originalPath,
-    preview_path: previewPath,
-    thumbnail_path: thumbnailPath,
-    width: metadata.width,
-    height: metadata.height,
-    camera: camera || undefined,
+    title: filenameTitle(file.name),
+    original_path: originalKey,
+    preview_path: originalKey,
+    thumbnail_path: originalKey,
+    original_url: publicObjectUrl(originalKey),
+    preview_url: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
+    thumbnail_url: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
+    file_size: file.size,
+    mime_type: file.mimeType,
+    uploaded_at: createdAt,
+    width: file.width,
+    height: file.height,
+    camera,
     camera_type: inferCameraType(camera),
-    lens: lens || undefined,
-    film: film || undefined,
+    lens: metadata.lens,
+    film,
     film_brand: film ? film.split(" ")[0] : undefined,
-    iso: readFormNumber(form, "iso") ?? readExifNumber(exif?.ISO),
-    aperture: readFormText(form, "aperture") || (exif?.FNumber ? `f/${trimNumber(exif.FNumber)}` : undefined),
-    shutter_speed: readFormText(form, "shutterSpeed") || formatExposure(exif?.ExposureTime),
-    focal_length: readFormText(form, "focalLength") || (exif?.FocalLength ? `${trimNumber(exif.FocalLength)}mm` : undefined),
-    taken_at: manualTakenAt || (exif?.DateTimeOriginal instanceof Date ? exif.DateTimeOriginal.toISOString() : undefined),
-    location: readFormText(form, "location") || undefined,
-    scanner: readFormText(form, "scanner") || exif?.Software || undefined,
-    notes: readFormText(form, "notes") || undefined,
+    iso: readNumber(metadata.iso),
+    taken_at: takenAt,
+    location: metadata.location,
+    notes: metadata.notes,
     visibility: "public"
   };
 }
 
-function createLocalAlbum({
-  id,
-  title,
-  form,
-  records,
-  user,
-  createdAt
-}: {
-  id: string;
-  title: string;
-  form: FormData;
-  records: UploadRecord[];
-  user: LocalAlbumRecord["uploader"];
-  createdAt: string;
-}): LocalAlbumRecord {
-  const cover = records[0];
-
-  return {
-    id,
-    user_id: user.id,
-    title,
-    description: readFormText(form, "notes") || undefined,
-    cover_path: cover.thumbnail_path,
-    cover_width: cover.width,
-    cover_height: cover.height,
-    photo_ids: records.map((record) => record.id),
-    photo_count: records.length,
-    camera: readFormText(form, "camera") || cover.camera,
-    camera_type: cover.camera_type,
-    lens: readFormText(form, "lens") || cover.lens,
-    film: readFormText(form, "film") || cover.film,
-    film_brand: cover.film_brand,
-    iso: cover.iso,
-    taken_at: cover.taken_at,
-    date: cover.taken_at?.slice(0, 10),
-    location: readFormText(form, "location") || cover.location,
-    visibility: "public",
-    created_at: createdAt,
-    uploader: user
-  };
-}
-
-async function upsertAlbumSafely({
-  album,
-  supabase
-}: {
-  album: LocalAlbumRecord;
-  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>;
-}) {
-  const { error } = await supabase.from("albums").upsert({
-    id: album.id,
-    user_id: album.user_id,
-    title: album.title,
-    description: album.description ?? "",
-    cover_path: album.cover_path,
-    location: album.location,
-    date: album.date,
-    visibility: "public"
-  });
-
-  return !error;
-}
-
-async function upsertSeriesSafely({
-  album,
-  supabase
-}: {
-  album: LocalAlbumRecord;
-  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>;
-}) {
-  const { error } = await supabase.from("series").upsert({
-    id: album.id,
-    owner_id: album.user_id,
-    title: album.title,
-    description: album.description ?? "",
-    cover_path: album.cover_path,
-    location: album.location,
-    date: album.date,
-    visibility: "public"
-  });
-
+async function upsertAlbumSafely(supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>, payload: Record<string, unknown>) {
+  const { error } = await supabase.from("albums").upsert(stripUndefinedValues(payload));
   if (error) {
     throw new Error(error.message);
   }
 }
 
-function removeAlbumId(record: UploadRecord) {
-  const nextRecord = { ...record };
-  delete nextRecord.album_id;
-  return nextRecord;
+async function upsertSeriesSafely(supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>, payload: Record<string, unknown>) {
+  const { error } = await supabase.from("series").upsert(stripUndefinedValues(payload));
+  if (error) {
+    throw new Error(error.message);
+  }
 }
 
 async function insertPhotosWithSchemaFallback(
@@ -350,7 +239,7 @@ async function insertPhotosWithSchemaFallback(
     "visibility"
   ]);
 
-  for (let attempt = 0; attempt < 24; attempt += 1) {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
     const { error } = await supabase.from("photos").insert(insertRecords);
     if (!error) return;
 
@@ -376,40 +265,36 @@ async function insertSeriesPhotosSafely(
 ) {
   const { error } = await supabase
     .from("series_photos")
-    .insert(
-      records.map((record, index) => ({
-        series_id: seriesId,
-        photo_id: record.id,
-        position: index + 1
-      }))
-    );
+    .insert(records.map((record, index) => ({ series_id: seriesId, photo_id: record.id, position: index + 1 })));
 
   if (error) {
     throw new Error(error.message);
   }
 }
 
-function stripUndefinedValues(record: UploadRecord) {
-  return Object.fromEntries(
-    Object.entries(record).filter(([, value]) => value !== undefined)
-  ) as Record<string, unknown>;
+function normalizeMetadata(metadata?: UploadMetadata) {
+  return {
+    albumTitle: cleanText(metadata?.albumTitle),
+    camera: cleanText(metadata?.camera),
+    lens: cleanText(metadata?.lens),
+    film: cleanText(metadata?.film),
+    iso: cleanText(metadata?.iso),
+    takenAt: cleanText(metadata?.takenAt),
+    location: cleanText(metadata?.location),
+    notes: cleanText(metadata?.notes)
+  };
 }
 
-function extractMissingPhotoColumn(message: string) {
-  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
+function cleanText(value?: string) {
+  const text = value?.trim();
+  return text || undefined;
 }
 
-function readFormText(form: FormData, key: string) {
-  const value = form.get(key);
-  return typeof value === "string" ? value.trim() : "";
+function readAlbumTitle(metadata: UploadMetadata, fallbackTitle: string) {
+  return metadata.albumTitle?.trim() || fallbackTitle || "Film User";
 }
 
-function readFormNumber(form: FormData, key: string) {
-  const value = Number(readFormText(form, key));
-  return Number.isFinite(value) && value > 0 ? value : undefined;
-}
-
-function normalizeDateInput(value: string) {
+function normalizeDateInput(value?: string) {
   if (!value) {
     return undefined;
   }
@@ -418,21 +303,13 @@ function normalizeDateInput(value: string) {
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
 }
 
-function readAlbumTitle(form: FormData, fallbackTitle: string) {
-  const explicitTitle = readFormText(form, "albumTitle") || readFormText(form, "seriesTitle") || readFormText(form, "title");
-  if (explicitTitle) {
-    return explicitTitle;
-  }
-
-  return fallbackTitle || "Film User";
+function readNumber(value?: string) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : undefined;
 }
 
 function filenameTitle(filename: string) {
   return path.basename(filename, path.extname(filename)).replace(/[-_]+/g, " ");
-}
-
-function joinCamera(make?: string, model?: string) {
-  return [make, model].filter(Boolean).join(" ").trim();
 }
 
 function inferCameraType(camera?: string): UploadRecord["camera_type"] {
@@ -451,22 +328,10 @@ function inferCameraType(camera?: string): UploadRecord["camera_type"] {
   return "digital";
 }
 
-function readExifNumber(value: unknown) {
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+function stripUndefinedValues(record: Record<string, unknown>) {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
-function trimNumber(value: number) {
-  return Number(value.toFixed(2)).toString();
-}
-
-function formatExposure(value: unknown) {
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return undefined;
-  }
-
-  if (value >= 1) {
-    return `${trimNumber(value)}s`;
-  }
-
-  return `1/${Math.round(1 / value)}`;
+function extractMissingPhotoColumn(message: string) {
+  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
 }

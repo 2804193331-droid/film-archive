@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Header } from "@/components/header";
-import { StorageBanner } from "@/components/storage-banner";
 import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
@@ -19,7 +18,6 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <Header />
-          <StorageBanner />
           {children}
         </ThemeProvider>
       </body>

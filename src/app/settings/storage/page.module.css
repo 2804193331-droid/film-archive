@@ -7,3 +7,44 @@
   color: var(--accent);
   font-weight: 760;
 }
+
+.panel {
+  max-width: 760px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 22px;
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  box-shadow: var(--shadow-soft);
+}
+
+.panel dl {
+  display: grid;
+  gap: 16px;
+  margin: 0;
+}
+
+.panel div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 14px;
+}
+
+.panel div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.panel dt {
+  color: var(--text-muted);
+}
+
+.panel dd {
+  margin: 0;
+  color: var(--text);
+  font-weight: 680;
+  text-align: right;
+  overflow-wrap: anywhere;
+}

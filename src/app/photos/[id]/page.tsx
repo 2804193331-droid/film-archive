@@ -14,7 +14,7 @@ export default async function PhotoDetailPage({ params }: { params: Promise<{ id
   }
 
   const album = photo.albumId ? await getAlbum(photo.albumId) : null;
-  const downloadUrl = photo.originalPath ? `/api/assets/originals/${photo.originalPath}?download=1` : photo.originalUrl;
+  const downloadUrl = photo.originalUrl;
   const ownerHref = `/users/${encodeURIComponent(photo.uploader.id || photo.uploader.username)}`;
 
   const details = [

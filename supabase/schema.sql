@@ -74,6 +74,12 @@ create table if not exists public.photos (
   original_path text not null,
   preview_path text not null,
   thumbnail_path text not null,
+  original_url text,
+  preview_url text,
+  thumbnail_url text,
+  file_size bigint,
+  mime_type text,
+  uploaded_at timestamptz not null default now(),
   width integer,
   height integer,
   camera_id uuid references public.cameras(id) on delete set null,
@@ -112,6 +118,12 @@ drop table if exists public.photo_favorites;
 alter table public.photos drop column if exists like_count;
 alter table public.photos drop column if exists favorite_count;
 alter table public.photos add column if not exists album_id uuid references public.albums(id) on delete set null;
+alter table public.photos add column if not exists original_url text;
+alter table public.photos add column if not exists preview_url text;
+alter table public.photos add column if not exists thumbnail_url text;
+alter table public.photos add column if not exists file_size bigint;
+alter table public.photos add column if not exists mime_type text;
+alter table public.photos add column if not exists uploaded_at timestamptz not null default now();
 
 create index if not exists albums_user_idx on public.albums (user_id, created_at desc);
 create index if not exists albums_public_created_idx on public.albums (visibility, created_at desc);

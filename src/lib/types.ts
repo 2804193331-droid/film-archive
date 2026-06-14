@@ -19,6 +19,9 @@ export type Photo = {
   originalPath?: string;
   previewPath?: string;
   thumbnailPath?: string;
+  fileSize?: number;
+  mimeType?: string;
+  uploadedAt?: string;
   width: number;
   height: number;
   camera?: string;

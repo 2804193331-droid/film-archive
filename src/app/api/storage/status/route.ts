@@ -1,23 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAppSessionFromRequest } from "@/lib/app-session";
-import { isAdminSession } from "@/lib/admin";
-import { getStorageStatus } from "@/lib/storage";
+import { NextResponse } from "next/server";
+import { isOssConfigured, OSS_BUCKET, OSS_ENDPOINT, OSS_REGION } from "@/lib/oss";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-export async function GET(request: NextRequest) {
-  const status = await getStorageStatus();
-  const session = getAppSessionFromRequest(request);
-  if (process.env.NODE_ENV === "production" && !isAdminSession(session)) {
-    return NextResponse.json({
-      configured: status.configured,
-      online: status.online,
-      readOnly: status.readOnly,
-      usedBytes: 0,
-      imageCount: 0,
-      missingDirs: status.missingDirs
-    });
-  }
-
-  return NextResponse.json(status);
+export async function GET() {
+  return NextResponse.json({
+    provider: "aliyun-oss",
+    configured: isOssConfigured(),
+    bucket: OSS_BUCKET,
+    region: OSS_REGION,
+    endpoint: OSS_ENDPOINT,
+    online: isOssConfigured(),
+    readOnly: !isOssConfigured()
+  });
 }

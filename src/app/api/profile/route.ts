@@ -1,15 +1,14 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import sharp from "sharp";
 import { z } from "zod";
 import { getAppSessionFromRequest, setAppSessionCookie } from "@/lib/app-session";
-import { updateLocalUploaderProfile } from "@/lib/local-library";
 import { createSupabaseAdminClient } from "@/lib/supabase";
-import { getConfiguredUploadDir } from "@/lib/storage";
+import { uploadBufferToOss } from "@/lib/oss";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
@@ -34,20 +33,10 @@ export async function PATCH(request: NextRequest) {
 
     let avatarUrl = payload.keepAvatarUrl ?? normalizeAvatarUrl(parsed.data.avatarUrl);
     if (payload.avatarFile) {
-      const uploadDir = await getConfiguredUploadDir();
-      if (!uploadDir) {
-        return NextResponse.json({ error: "请先配置照片存储目录，再上传头像。" }, { status: 503 });
-      }
-
-      avatarUrl = await saveAvatarFile(uploadDir, session.id, payload.avatarFile);
+      avatarUrl = await saveAvatarFile(session.id, payload.avatarFile);
     }
 
-    const nextSession = {
-      ...session,
-      displayName: parsed.data.displayName,
-      avatarUrl
-    };
-
+    const nextSession = { ...session, displayName: parsed.data.displayName, avatarUrl };
     const supabase = createSupabaseAdminClient();
     if (supabase) {
       await supabase
@@ -65,16 +54,6 @@ export async function PATCH(request: NextRequest) {
           avatar_url: avatarUrl
         }
       });
-    }
-
-    const uploadDir = await getConfiguredUploadDir();
-    if (uploadDir) {
-      await updateLocalUploaderProfile({
-        uploadDir,
-        userId: session.id,
-        displayName: nextSession.displayName,
-        avatarUrl: nextSession.avatarUrl
-      }).catch(() => undefined);
     }
 
     const response = NextResponse.json({ user: nextSession });
@@ -111,7 +90,7 @@ async function readProfilePayload(request: NextRequest) {
   };
 }
 
-async function saveAvatarFile(uploadDir: string, userId: string, file: File) {
+async function saveAvatarFile(userId: string, file: File) {
   const extension = path.extname(file.name).toLowerCase();
   if (!AVATAR_EXTENSIONS.has(extension)) {
     throw new Error("头像格式不支持。");
@@ -121,19 +100,18 @@ async function saveAvatarFile(uploadDir: string, userId: string, file: File) {
     throw new Error("头像不能超过 8MB。");
   }
 
-  const avatarsDir = path.join(uploadDir, "avatars", userId);
-  await fs.mkdir(avatarsDir, { recursive: true });
-
-  const filename = `${randomUUID()}.jpg`;
-  const target = path.join(avatarsDir, filename);
   const buffer = Buffer.from(await file.arrayBuffer());
-  await sharp(buffer, { failOn: "none" })
+  const output = await sharp(buffer, { failOn: "none" })
     .rotate()
     .resize(512, 512, { fit: "cover" })
     .jpeg({ quality: 86 })
-    .toFile(target);
+    .toBuffer();
 
-  return `/api/assets/avatars/${userId}/${filename}`;
+  return uploadBufferToOss({
+    key: `avatars/${userId}/${randomUUID()}.jpg`,
+    buffer: output,
+    mimeType: "image/jpeg"
+  });
 }
 
 function readFormText(form: FormData, key: string) {

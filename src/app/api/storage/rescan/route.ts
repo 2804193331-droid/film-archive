@@ -1,24 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getAppSessionFromRequest } from "@/lib/app-session";
-import { canManageStorage } from "@/lib/admin";
-import { rescanLocalPhotos } from "@/lib/local-library";
-import { getConfiguredUploadDir, getStorageStatus } from "@/lib/storage";
+import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
-  const session = getAppSessionFromRequest(request);
-  if (!canManageStorage(session)) {
-    return NextResponse.json({ error: "Only administrators can manage storage." }, { status: 403 });
-  }
-
-  const status = await getStorageStatus();
-  const uploadDir = await getConfiguredUploadDir();
-
-  if (!uploadDir || !status.configured || !status.online || status.readOnly) {
-    return NextResponse.json({ error: "照片存储目录不可用。" }, { status: 423 });
-  }
-
-  const recovered = await rescanLocalPhotos(uploadDir);
-  return NextResponse.json({ recovered });
+export async function POST() {
+  return NextResponse.json({ error: "阿里云 OSS 模式不支持本地目录扫描。" }, { status: 410 });
 }

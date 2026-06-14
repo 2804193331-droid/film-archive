@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { HardDrive } from "lucide-react";
+import { Cloud } from "lucide-react";
 import { ThemeSwitcher } from "@/components/theme-switcher";
 import styles from "./page.module.css";
 
@@ -23,11 +23,11 @@ export default function SettingsPage() {
 
         <Link className={styles.panelLink} href="/settings/storage">
           <div>
-            <p className={styles.kicker}>存储</p>
-            <h2>存储管理</h2>
-            <p className={styles.description}>查看硬盘状态、修复缩略图、重新扫描目录。</p>
+            <p className={styles.kicker}>OSS</p>
+            <h2>阿里云 OSS</h2>
+            <p className={styles.description}>查看当前对象存储配置状态。</p>
           </div>
-          <HardDrive size={22} aria-hidden />
+          <Cloud size={22} aria-hidden />
         </Link>
       </div>
     </main>

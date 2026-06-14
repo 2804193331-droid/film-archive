@@ -23,7 +23,16 @@ type PreviewItem = {
   name: string;
 };
 
+type SignedUpload = {
+  id: string;
+  originalKey: string;
+  uploadUrl: string;
+  mimeType: string;
+};
+
 const supportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"];
+const maxFiles = 100;
+const maxFileSize = 100 * 1024 * 1024;
 
 export function EditAlbumForm({ album }: { album: Album }) {
   const router = useRouter();
@@ -56,6 +65,18 @@ export function EditAlbumForm({ album }: { album: Album }) {
     if (!fileList) return;
     const nextFiles = Array.from(fileList).filter(isSupportedImage);
     previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+
+    if (nextFiles.length > maxFiles) {
+      setMessage(`一次最多添加 ${maxFiles} 张照片。`);
+      return;
+    }
+
+    const oversized = nextFiles.find((file) => file.size > maxFileSize);
+    if (oversized) {
+      setMessage(`${oversized.name} 超过 100MB。`);
+      return;
+    }
+
     setFiles(nextFiles);
     setPreviews(
       nextFiles.slice(0, 12).map((file, index) => ({
@@ -64,6 +85,7 @@ export function EditAlbumForm({ album }: { album: Album }) {
         url: URL.createObjectURL(file)
       }))
     );
+    setMessage("");
   }
 
   function clearFiles() {
@@ -76,25 +98,73 @@ export function EditAlbumForm({ album }: { album: Album }) {
     setBusy(true);
     setMessage("");
 
-    const payload = new FormData();
-    Object.entries(form).forEach(([key, value]) => payload.append(key, value));
-    files.forEach((file) => payload.append("files", file));
+    try {
+      let completed: Array<{
+        id: string;
+        name: string;
+        originalKey: string;
+        size: number;
+        mimeType: string;
+        width?: number;
+        height?: number;
+      }> = [];
 
-    const response = await fetch(`/api/albums/${album.id}`, {
-      method: "PATCH",
-      body: payload
-    });
-    const body = await response.json().catch(() => ({}));
-    setBusy(false);
+      if (files.length) {
+        setMessage("正在上传新增照片到 OSS...");
+        const signResponse = await fetch("/api/upload/sign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            albumId: album.id,
+            files: files.map((file) => ({
+              name: file.name,
+              size: file.size,
+              type: file.type || mimeTypeFromName(file.name)
+            }))
+          })
+        });
+        const signBody = await signResponse.json().catch(() => ({}));
+        if (!signResponse.ok) {
+          throw new Error(signBody.error ?? "生成 OSS 上传签名失败。");
+        }
 
-    if (!response.ok) {
-      setMessage(body.error ?? "保存失败，请稍后重试。");
-      return;
+        const signedUploads = signBody.uploads as SignedUpload[];
+        completed = await mapWithConcurrency(files, 3, async (file, index) => {
+          const signed = signedUploads[index];
+          await putFileToOss(file, signed);
+          const dimensions = await readImageDimensions(file);
+          return {
+            id: signed.id,
+            name: file.name,
+            originalKey: signed.originalKey,
+            size: file.size,
+            mimeType: signed.mimeType,
+            width: dimensions?.width,
+            height: dimensions?.height
+          };
+        });
+      }
+
+      setMessage("正在保存修改...");
+      const response = await fetch(`/api/albums/${album.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...form, files: completed })
+      });
+      const body = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(body.error ?? "保存失败，请稍后重试。");
+      }
+
+      clearFiles();
+      router.push(`/album/${album.id}`);
+      router.refresh();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "保存失败，请稍后重试。");
+    } finally {
+      setBusy(false);
     }
-
-    clearFiles();
-    router.push(`/album/${album.id}`);
-    router.refresh();
   }
 
   return (
@@ -111,70 +181,37 @@ export function EditAlbumForm({ album }: { album: Album }) {
 
       <label>
         相机
-        <input
-          className="input"
-          list="edit-camera-list"
-          value={form.camera}
-          onChange={(event) => setForm({ ...form, camera: event.target.value })}
-        />
+        <input className="input" list="edit-camera-list" value={form.camera} onChange={(event) => setForm({ ...form, camera: event.target.value })} />
       </label>
 
       <label>
         镜头
-        <input
-          className="input"
-          list="edit-lens-list"
-          value={form.lens}
-          onChange={(event) => setForm({ ...form, lens: event.target.value })}
-        />
+        <input className="input" list="edit-lens-list" value={form.lens} onChange={(event) => setForm({ ...form, lens: event.target.value })} />
       </label>
 
       <label>
         胶卷
-        <input
-          className="input"
-          list="edit-film-list"
-          value={form.film}
-          onChange={(event) => setForm({ ...form, film: event.target.value })}
-        />
+        <input className="input" list="edit-film-list" value={form.film} onChange={(event) => setForm({ ...form, film: event.target.value })} />
       </label>
 
       <label>
         ISO
-        <input
-          className="input"
-          inputMode="numeric"
-          value={form.iso}
-          onChange={(event) => setForm({ ...form, iso: event.target.value })}
-        />
+        <input className="input" inputMode="numeric" value={form.iso} onChange={(event) => setForm({ ...form, iso: event.target.value })} />
       </label>
 
       <label>
         日期
-        <input
-          className="input"
-          type="date"
-          value={form.takenAt}
-          onChange={(event) => setForm({ ...form, takenAt: event.target.value })}
-        />
+        <input className="input" type="date" value={form.takenAt} onChange={(event) => setForm({ ...form, takenAt: event.target.value })} />
       </label>
 
       <label>
         地点
-        <input
-          className="input"
-          value={form.location}
-          onChange={(event) => setForm({ ...form, location: event.target.value })}
-        />
+        <input className="input" value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} />
       </label>
 
       <label className={styles.full}>
         备注
-        <textarea
-          className="textarea"
-          value={form.notes}
-          onChange={(event) => setForm({ ...form, notes: event.target.value })}
-        />
+        <textarea className="textarea" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
       </label>
 
       <div className={styles.full}>
@@ -191,13 +228,7 @@ export function EditAlbumForm({ album }: { album: Album }) {
         </div>
 
         <label className={styles.filePicker}>
-          <input
-            type="file"
-            multiple
-            accept="image/jpeg,image/png,image/webp,image/tiff"
-            disabled={busy}
-            onChange={(event) => addFiles(event.target.files)}
-          />
+          <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/tiff" disabled={busy} onChange={(event) => addFiles(event.target.files)} />
           <span>{files.length ? `已选择 ${files.length} 张照片` : "选择要添加的照片"}</span>
         </label>
 
@@ -240,7 +271,76 @@ export function EditAlbumForm({ album }: { album: Album }) {
   );
 }
 
+function putFileToOss(file: File, signed: SignedUpload) {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", signed.uploadUrl);
+    xhr.setRequestHeader("Content-Type", signed.mimeType);
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      reject(new Error(`OSS 上传失败：${file.name}`));
+    };
+    xhr.onerror = () => reject(new Error("OSS 上传失败，请检查 Bucket CORS 设置。"));
+    xhr.send(file);
+  });
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>) {
+  const results: R[] = [];
+  let nextIndex = 0;
+
+  async function run() {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, run));
+  return results;
+}
+
+function readImageDimensions(file: File) {
+  return new Promise<{ width: number; height: number } | undefined>((resolve) => {
+    if (!file.type.startsWith("image/")) {
+      resolve(undefined);
+      return;
+    }
+
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    const timer = window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+      resolve(undefined);
+    }, 3000);
+
+    image.onload = () => {
+      window.clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve({ width: image.naturalWidth, height: image.naturalHeight });
+    };
+    image.onerror = () => {
+      window.clearTimeout(timer);
+      URL.revokeObjectURL(url);
+      resolve(undefined);
+    };
+    image.src = url;
+  });
+}
+
 function isSupportedImage(file: File) {
   const lowerName = file.name.toLowerCase();
   return supportedExtensions.some((extension) => lowerName.endsWith(extension));
+}
+
+function mimeTypeFromName(name: string) {
+  const lowerName = name.toLowerCase();
+  if (lowerName.endsWith(".png")) return "image/png";
+  if (lowerName.endsWith(".webp")) return "image/webp";
+  if (lowerName.endsWith(".tif") || lowerName.endsWith(".tiff")) return "image/tiff";
+  return "image/jpeg";
 }

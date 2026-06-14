@@ -1,8 +1,8 @@
-import { redirect } from "next/navigation";
 import { AlbumFeed } from "@/components/album-feed";
 import { getAlbums } from "@/lib/photos";
-import { getStorageStatus } from "@/lib/storage";
 import styles from "./page.module.css";
+
+export const dynamic = "force-dynamic";
 
 type HomeProps = {
   searchParams: Promise<{
@@ -15,11 +15,6 @@ type HomeProps = {
 };
 
 export default async function Home({ searchParams }: HomeProps) {
-  const storage = await getStorageStatus();
-  if (!storage.configured) {
-    redirect("/setup");
-  }
-
   const filters = await searchParams;
   const albums = await getAlbums(filters);
 
