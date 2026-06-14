@@ -1,0 +1,9 @@
+.header {
+  padding: 54px 0 30px;
+}
+
+.header p {
+  margin: 0 0 14px;
+  color: var(--accent);
+  font-weight: 760;
+}

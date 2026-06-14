@@ -1,0 +1,51 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Album } from "@/lib/types";
+import { AlbumCard } from "@/components/album-card";
+import styles from "./album-feed.module.css";
+
+const PAGE_SIZE = 9;
+
+export function AlbumFeed({ albums }: { albums: Album[] }) {
+  const [visible, setVisible] = useState(PAGE_SIZE);
+  const sentinel = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible((count) => Math.min(count + PAGE_SIZE, albums.length));
+        }
+      },
+      { rootMargin: "600px 0px" }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [albums.length]);
+
+  const visibleAlbums = useMemo(() => albums.slice(0, visible), [albums, visible]);
+
+  if (!albums.length) {
+    return (
+      <div className={styles.empty}>
+        <p>没有找到匹配的作品。</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div className={styles.grid}>
+        {visibleAlbums.map((album) => (
+          <AlbumCard key={album.id} album={album} />
+        ))}
+      </div>
+      <div ref={sentinel} className={styles.sentinel} aria-hidden />
+    </>
+  );
+}

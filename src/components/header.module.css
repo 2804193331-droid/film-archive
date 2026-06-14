@@ -1,0 +1,143 @@
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--surface-glass) 76%, transparent);
+  backdrop-filter: blur(20px) saturate(1.18);
+  border-bottom: 1px solid transparent;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.scrolled {
+  background: color-mix(in srgb, var(--surface-glass) 88%, transparent);
+  border-bottom-color: var(--line);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+}
+
+.inner {
+  width: min(100% - 32px, var(--max));
+  min-height: 68px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.75fr) minmax(260px, 1.2fr) minmax(180px, 0.85fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.left,
+.right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.right {
+  justify-content: flex-end;
+}
+
+.brand {
+  font-weight: 760;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.uploadLink {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 58%, transparent);
+}
+
+.search {
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.search input::placeholder {
+  color: var(--text-muted);
+}
+
+@media (max-width: 980px) {
+  .inner {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "left right"
+      "search search";
+    min-height: auto;
+    padding: 10px 0;
+  }
+
+  .left {
+    grid-area: left;
+  }
+
+  .search {
+    grid-area: search;
+  }
+
+  .right {
+    grid-area: right;
+  }
+}
+
+@media (max-width: 720px) {
+  .inner {
+    width: min(100% - 20px, var(--max));
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "left"
+      "right"
+      "search";
+    gap: 10px;
+  }
+
+  .left,
+  .right {
+    gap: 8px;
+  }
+
+  .left {
+    justify-content: space-between;
+  }
+
+  .right {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .uploadLink span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+}

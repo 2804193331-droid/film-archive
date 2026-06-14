@@ -1,0 +1,60 @@
+"use client";
+
+import Link from "next/link";
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { Camera, Film, UserRound } from "lucide-react";
+import type { Photo } from "@/lib/types";
+import styles from "./photo-card.module.css";
+
+export function PhotoCard({ photo }: { photo: Photo }) {
+  const [loaded, setLoaded] = useState(false);
+  const ownerHref = `/users/${encodeURIComponent(photo.uploader.id || photo.uploader.username)}`;
+
+  return (
+    <motion.article
+      className={styles.card}
+      initial={{ opacity: 0, y: 14 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "80px" }}
+      transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+      whileHover={{ scale: 1.02 }}
+    >
+      <Link className={styles.imageLink} href={`/photos/${photo.id}`} aria-label={`查看 ${photo.title}`}>
+        {!loaded ? <span className={styles.skeleton} aria-hidden /> : null}
+        <img
+          src={photo.thumbnailUrl}
+          alt={photo.title}
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          className={loaded ? styles.loaded : ""}
+          style={{ aspectRatio: `${photo.width} / ${photo.height}` }}
+        />
+      </Link>
+      <div className={styles.body}>
+        <Link href={`/photos/${photo.id}`} className={styles.title}>
+          {photo.title}
+        </Link>
+
+        <div className={styles.meta}>
+          {photo.camera ? (
+            <span>
+              <Camera size={14} aria-hidden />
+              {photo.camera}
+            </span>
+          ) : null}
+          {photo.film ? (
+            <span>
+              <Film size={14} aria-hidden />
+              {photo.film}
+            </span>
+          ) : null}
+          <Link href={ownerHref} className={styles.ownerLink}>
+            {photo.uploader.avatarUrl ? <img src={photo.uploader.avatarUrl} alt="" loading="lazy" /> : <UserRound size={14} aria-hidden />}
+            {photo.uploader.displayName}
+          </Link>
+        </div>
+      </div>
+    </motion.article>
+  );
+}

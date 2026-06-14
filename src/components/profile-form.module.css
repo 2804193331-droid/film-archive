@@ -1,0 +1,64 @@
+.form {
+  display: grid;
+  gap: 14px;
+}
+
+.form label {
+  display: grid;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.avatarPicker {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.avatarPreview {
+  width: 74px;
+  height: 74px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+}
+
+.avatarPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarPicker input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.message {
+  margin: 0;
+  color: var(--accent);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .avatarPicker {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

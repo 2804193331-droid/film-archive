@@ -1,0 +1,12 @@
+.shell {
+  padding: 22px 0 54px;
+}
+
+.notice {
+  margin-bottom: 16px;
+  border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line));
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  background: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  color: var(--text-muted);
+}

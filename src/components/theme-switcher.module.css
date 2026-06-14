@@ -1,0 +1,48 @@
+.switcher {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+
+.option,
+.active {
+  min-height: 44px;
+  border: 0;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 12px;
+  color: var(--text-muted);
+  background: transparent;
+  white-space: nowrap;
+}
+
+.option span,
+.active span {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.active {
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.08);
+}
+
+@media (max-width: 520px) {
+  .switcher {
+    grid-template-columns: 1fr;
+  }
+
+  .option,
+  .active {
+    justify-content: flex-start;
+  }
+}

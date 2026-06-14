@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Film Archive: 启动开发服务器",
+      "type": "npm",
+      "script": "dev",
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "next",
+        "pattern": [
+          {
+            "regexp": ".",
+            "file": 1,
+            "location": 2,
+            "message": 3
+          }
+        ],
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*Next\\.js.*",
+          "endsPattern": ".*Ready.*"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Film Archive: 类型检查",
+      "type": "npm",
+      "script": "typecheck",
+      "group": "test",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Film Archive: 代码检查",
+      "type": "npm",
+      "script": "lint",
+      "group": "test",
+      "problemMatcher": "$eslint-stylish"
+    },
+    {
+      "label": "Film Archive: 生产构建",
+      "type": "npm",
+      "script": "build",
+      "group": "build",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "Film Archive: 安全审计",
+      "type": "shell",
+      "command": "npm audit --audit-level=moderate",
+      "group": "test",
+      "problemMatcher": []
+    }
+  ]
+}

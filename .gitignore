@@ -1,0 +1,14 @@
+node_modules
+.next
+.vercel
+out
+dist
+build
+.env
+.env*.local
+.film-archive-config.json
+uploads
+*.log
+*.tsbuildinfo
+*.zip
+.DS_Store
