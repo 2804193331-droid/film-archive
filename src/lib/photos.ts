@@ -126,7 +126,7 @@ async function getSupabaseAlbums() {
 
   const { data, error } = await supabase
     .from("albums")
-    .select("id,user_id,title,description,cover_path,location,date,visibility,created_at,profiles:user_id(id,username,display_name,avatar_url)")
+    .select("id,user_id,title,description,cover_path,location,date,visibility,created_at")
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -136,9 +136,10 @@ async function getSupabaseAlbums() {
 
   const photos = await getSupabasePhotos();
   const photosByAlbum = groupPhotosByAlbum(photos);
+  const profilesById = await getProfilesById(data.map((item: any) => item.user_id).filter(Boolean));
 
   return data.map((item): Album => {
-    const owner = normalizeProfile(item.profiles);
+    const owner = normalizeProfile(profilesById.get(item.user_id) ?? { id: item.user_id });
     const albumPhotos = photosByAlbum.get(item.id) ?? [];
     const cover = albumPhotos[0];
     const photoIds = albumPhotos.map((photo) => photo.id);
@@ -167,6 +168,27 @@ async function getSupabaseAlbums() {
       createdAt: item.created_at ?? new Date().toISOString()
     };
   });
+}
+
+async function getProfilesById(userIds: string[]) {
+  const supabase = createSupabaseAdminClient();
+  const profiles = new Map<string, any>();
+  const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+
+  if (!supabase || !uniqueIds.length) {
+    return profiles;
+  }
+
+  const { data } = await supabase
+    .from("profiles")
+    .select("id,username,display_name,avatar_url")
+    .in("id", uniqueIds);
+
+  for (const profile of data ?? []) {
+    profiles.set(profile.id, profile);
+  }
+
+  return profiles;
 }
 
 function buildPhotoSelect(excludedColumns: Set<string>) {
