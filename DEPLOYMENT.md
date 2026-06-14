@@ -69,6 +69,18 @@ ADMIN_USERNAMES
 ADMIN_USER_IDS
 ```
 
+如果需要线上后台管理，请至少配置一个管理员变量：
+
+```text
+ADMIN_USERNAMES=你的用户名
+```
+
+或：
+
+```text
+ADMIN_USER_IDS=Supabase profiles.id
+```
+
 `APP_SESSION_SECRET` 必须是随机长字符串。可以生成：
 
 ```bash
@@ -128,9 +140,12 @@ npm run build
 
 - 首页不再跳 `/setup`
 - `/api/storage/status` 显示 `provider: aliyun-oss`
+- `/admin` 登录管理员账号后可以进入后台
 - 上传页可以选择最多 100 张照片
 - 上传时进度条来自浏览器到 OSS 的 PUT 进度
 - Supabase `photos` 表能看到 OSS URL、文件大小、MIME Type、上传时间
+
+如果上传按钮禁用并显示 OSS 未就绪，说明线上缺少 `ALI_OSS_ACCESS_KEY_ID` / `ALI_OSS_ACCESS_KEY_SECRET`，或 Bucket CORS 没允许当前 Vercel 域名。
 
 ## 说明
 

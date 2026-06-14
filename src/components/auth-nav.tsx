@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { LogIn, Settings, UserRound } from "lucide-react";
+import { LogIn, Settings, Shield, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import styles from "./auth-nav.module.css";
 
 type AuthState = {
   displayName?: string;
   avatarUrl?: string;
+  isAdmin?: boolean;
 };
 
 export function AuthNav() {
@@ -21,7 +22,8 @@ export function AuthNav() {
         if (!mounted) return;
         setState({
           displayName: body.user?.displayName,
-          avatarUrl: body.user?.avatarUrl
+          avatarUrl: body.user?.avatarUrl,
+          isAdmin: Boolean(body.isAdmin)
         });
       })
       .catch(() => {
@@ -49,6 +51,12 @@ export function AuthNav() {
         <Link className={styles.compactLink} href="/my/photos">
           我的照片
         </Link>
+        {state.isAdmin ? (
+          <Link className={styles.compactLink} href="/admin">
+            <Shield size={16} aria-hidden />
+            后台
+          </Link>
+        ) : null}
         <Link className={styles.iconLink} href="/settings" title="设置">
           <Settings size={18} aria-hidden />
           <span className="sr-only">设置</span>

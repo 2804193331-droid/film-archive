@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
+import { canAccessAdmin } from "@/lib/admin";
 import { clearAppSessionCookie, getAppSessionFromRequest } from "@/lib/app-session";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
-  return NextResponse.json({ user: getAppSessionFromRequest(request) });
+  const user = getAppSessionFromRequest(request);
+  return NextResponse.json({ user, isAdmin: canAccessAdmin(user) });
 }
 
 export async function DELETE() {

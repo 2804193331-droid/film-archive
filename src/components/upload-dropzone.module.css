@@ -6,7 +6,7 @@
 }
 
 .dropzone {
-  min-height: clamp(520px, 72svh, 760px);
+  min-height: clamp(520px, 72vh, 760px);
   border: 1px dashed var(--line);
   border-radius: 20px;
   display: grid;
@@ -73,7 +73,7 @@
 }
 
 .previewHero {
-  height: clamp(320px, 58svh, 660px);
+  height: clamp(320px, 58vh, 660px);
   border-radius: 16px;
   overflow: hidden;
   background: #151821;
@@ -164,6 +164,29 @@
   justify-content: space-between;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.storageState {
+  grid-column: 1 / -1;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 64%, transparent);
+  line-height: 1.35;
+}
+
+.storageOk {
+  color: var(--positive);
+}
+
+.storageError {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
 }
 
 .progress {

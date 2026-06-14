@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderUp, ImageIcon, RotateCcw, UploadCloud, X } from "lucide-react";
+import { AlertCircle, CheckCircle2, FolderUp, ImageIcon, RotateCcw, UploadCloud, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cameras, films, lenses } from "@/lib/catalog";
 import styles from "./upload-dropzone.module.css";
@@ -32,6 +32,16 @@ type CustomOptionPools = {
 };
 
 type ExifRecord = Record<string, unknown>;
+
+type StorageStatus = {
+  provider?: string;
+  configured: boolean;
+  online?: boolean;
+  bucket?: string;
+  region?: string;
+  endpoint?: string;
+  readOnly?: boolean;
+};
 
 type SignedUpload = {
   id: string;
@@ -65,6 +75,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   const [message, setMessage] = useState("");
   const [metadataStatus, setMetadataStatus] = useState("");
   const [signedIn, setSignedIn] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | null>(null);
   const [customOptions, setCustomOptions] = useState<CustomOptionPools>({ cameras: [], lenses: [], films: [] });
   const [metadata, setMetadata] = useState<UploadMetadata>(emptyMetadata);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -88,6 +99,29 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    fetch("/api/storage/status", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body) => {
+        if (!mounted) return;
+        setStorageStatus(body);
+      })
+      .catch(() => {
+        if (mounted) {
+          setStorageStatus({
+            configured: false,
+            online: false,
+            readOnly: true
+          });
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     return () => {
       previews.forEach((preview) => URL.revokeObjectURL(preview.url));
     };
@@ -106,8 +140,14 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
     () => mergeOptions(films.map((film) => `${film.brand} ${film.name}`), customOptions.films),
     [customOptions.films]
   );
-  const disabled = readOnly || !signedIn || state === "uploading";
+  const storageChecking = storageStatus === null;
+  const storageUnavailable = storageStatus?.configured === false || storageStatus?.readOnly === true;
+  const pickerDisabled = state === "uploading";
+  const uploadDisabled = readOnly || !signedIn || storageChecking || storageUnavailable || state === "uploading";
   const hasFiles = files.length > 0;
+  const storageNotice = storageUnavailable
+    ? "阿里云 OSS 还没有配置好。请先添加 ALI_OSS_ACCESS_KEY_ID 和 ALI_OSS_ACCESS_KEY_SECRET，并检查 Bucket CORS。"
+    : "";
 
   function addFiles(fileList: FileList | null) {
     if (!fileList) return;
@@ -190,6 +230,11 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
 
     if (!signedIn) {
       setMessage("请先登录后再上传。");
+      return;
+    }
+
+    if (storageUnavailable) {
+      setMessage(storageNotice);
       return;
     }
 
@@ -283,7 +328,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
                 <ImageIcon size={17} aria-hidden />
                 预览
               </span>
-              <button className="icon-button" type="button" onClick={clearFiles} title="清空选择">
+              <button className="icon-button" type="button" disabled={pickerDisabled} onClick={clearFiles} title="清空选择">
                 <X size={17} aria-hidden />
                 <span className="sr-only">清空选择</span>
               </button>
@@ -310,11 +355,11 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             {metadataStatus ? <div className={styles.detectedMeta}>{metadataStatus}</div> : null}
 
             <div className={styles.dropActions}>
-              <button className="ghost-button" type="button" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+              <button className="ghost-button" type="button" disabled={pickerDisabled} onClick={() => fileInputRef.current?.click()}>
                 <UploadCloud size={17} aria-hidden />
                 更换照片
               </button>
-              <button className="ghost-button" type="button" disabled={disabled} onClick={() => folderInputRef.current?.click()}>
+              <button className="ghost-button" type="button" disabled={pickerDisabled} onClick={() => folderInputRef.current?.click()}>
                 <FolderUp size={17} aria-hidden />
                 更换文件夹
               </button>
@@ -325,12 +370,13 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             <UploadCloud size={40} aria-hidden />
             <h2>上传照片</h2>
             {!signedIn ? <div className={styles.authNotice}>请先登录。</div> : null}
+            {storageNotice ? <div className={styles.authNotice}>{storageNotice}</div> : null}
             <div className={styles.dropActions}>
-              <button className="button" type="button" disabled={disabled} onClick={() => fileInputRef.current?.click()}>
+              <button className="button" type="button" disabled={pickerDisabled} onClick={() => fileInputRef.current?.click()}>
                 <UploadCloud size={17} aria-hidden />
                 选择照片
               </button>
-              <button className="ghost-button" type="button" disabled={disabled} onClick={() => folderInputRef.current?.click()}>
+              <button className="ghost-button" type="button" disabled={pickerDisabled} onClick={() => folderInputRef.current?.click()}>
                 <FolderUp size={17} aria-hidden />
                 选择文件夹
               </button>
@@ -443,6 +489,17 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
           ))}
         </datalist>
 
+        <div className={`${styles.storageState} ${storageUnavailable ? styles.storageError : styles.storageOk}`}>
+          {storageUnavailable ? <AlertCircle size={16} aria-hidden /> : <CheckCircle2 size={16} aria-hidden />}
+          <span>
+            {storageUnavailable
+              ? "OSS 未就绪，暂时不能上传。"
+              : storageStatus
+                ? `OSS 已连接：${storageStatus.bucket ?? "film-archive-images"}`
+                : "正在检查 OSS 状态..."}
+          </span>
+        </div>
+
         <div className={styles.summary}>
           <span>{files.length} 张</span>
           <span>{formatBytes(totalSize)}</span>
@@ -455,7 +512,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
         {message ? <p className={styles.message}>{message}</p> : null}
 
         <div className={styles.actions}>
-          <button className="button" type="button" disabled={disabled || !files.length} onClick={upload}>
+          <button className="button" type="button" disabled={uploadDisabled || !files.length} onClick={upload}>
             上传
           </button>
           {state === "error" ? (

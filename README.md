@@ -24,6 +24,7 @@ Film Archive 是一个 Next.js 摄影作品社区与胶片作品档案馆。
 - 图片展示使用 OSS URL
 - 个人中心与头像修改
 - 我的照片、编辑作品组、追加照片、删除作品组
+- `/admin` 后台管理：数据概览、OSS 状态、最近作品、最近照片、用户列表
 - 深色模式 / 浅色模式 / 跟随系统
 
 ## 启动
@@ -32,6 +33,8 @@ Film Archive 是一个 Next.js 摄影作品社区与胶片作品档案馆。
 npm install
 npm run dev
 ```
+
+本地开发命令使用 webpack 模式，和生产构建保持一致，避免阿里云 OSS SDK 的可选代理依赖在 Turbopack 下被误解析。
 
 打开：
 
@@ -109,6 +112,29 @@ ExposeHeader: ETag
 ```
 
 如果图片要直接公开显示，Bucket 或对应对象需要允许公开读取，或者通过 CDN/自定义域名提供公开访问。
+
+如果上传页显示“OSS 未就绪”，优先检查：
+
+- `.env.local` 或 Vercel 是否已填写 `ALI_OSS_ACCESS_KEY_ID`
+- `.env.local` 或 Vercel 是否已填写 `ALI_OSS_ACCESS_KEY_SECRET`
+- OSS Bucket CORS 是否允许当前站点域名发起 `PUT`
+
+## 后台管理
+
+后台地址：
+
+```text
+/admin
+```
+
+本地开发时，如果还没有配置管理员名单，登录用户可以进入后台调试。
+
+生产环境必须配置至少一个：
+
+```text
+ADMIN_USERNAMES=
+ADMIN_USER_IDS=
+```
 
 ## 本地硬盘存储
 
