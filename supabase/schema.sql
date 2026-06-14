@@ -115,15 +115,64 @@ create table if not exists public.series_photos (
 
 drop table if exists public.photo_likes;
 drop table if exists public.photo_favorites;
+alter table public.profiles add column if not exists username text;
+alter table public.profiles add column if not exists display_name text;
+alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists bio text;
+alter table public.profiles add column if not exists created_at timestamptz not null default now();
+alter table public.profiles add column if not exists updated_at timestamptz not null default now();
+alter table public.albums add column if not exists user_id uuid references public.profiles(id) on delete cascade;
+alter table public.albums add column if not exists title text not null default 'Film Archive';
+alter table public.albums add column if not exists description text not null default '';
+alter table public.albums add column if not exists cover_path text;
+alter table public.albums add column if not exists location text;
+alter table public.albums add column if not exists date text;
+alter table public.albums add column if not exists visibility text not null default 'public';
+alter table public.albums add column if not exists created_at timestamptz not null default now();
+alter table public.albums add column if not exists updated_at timestamptz not null default now();
+alter table public.series add column if not exists owner_id uuid references public.profiles(id) on delete cascade;
+alter table public.series add column if not exists title text not null default 'Film Archive';
+alter table public.series add column if not exists description text not null default '';
+alter table public.series add column if not exists cover_path text;
+alter table public.series add column if not exists location text;
+alter table public.series add column if not exists date text;
+alter table public.series add column if not exists visibility text not null default 'public';
+alter table public.series add column if not exists created_at timestamptz not null default now();
+alter table public.series add column if not exists updated_at timestamptz not null default now();
+alter table public.photos add column if not exists user_id uuid references public.profiles(id) on delete cascade;
+alter table public.photos add column if not exists title text not null default 'Untitled';
+alter table public.photos add column if not exists description text;
+alter table public.photos add column if not exists original_path text;
+alter table public.photos add column if not exists preview_path text;
+alter table public.photos add column if not exists thumbnail_path text;
 alter table public.photos drop column if exists like_count;
 alter table public.photos drop column if exists favorite_count;
 alter table public.photos add column if not exists album_id uuid references public.albums(id) on delete set null;
+alter table public.photos add column if not exists series_id uuid references public.series(id) on delete set null;
 alter table public.photos add column if not exists original_url text;
 alter table public.photos add column if not exists preview_url text;
 alter table public.photos add column if not exists thumbnail_url text;
 alter table public.photos add column if not exists file_size bigint;
 alter table public.photos add column if not exists mime_type text;
 alter table public.photos add column if not exists uploaded_at timestamptz not null default now();
+alter table public.photos add column if not exists width integer;
+alter table public.photos add column if not exists height integer;
+alter table public.photos add column if not exists camera text;
+alter table public.photos add column if not exists camera_type text;
+alter table public.photos add column if not exists lens text;
+alter table public.photos add column if not exists film text;
+alter table public.photos add column if not exists film_brand text;
+alter table public.photos add column if not exists iso integer;
+alter table public.photos add column if not exists aperture text;
+alter table public.photos add column if not exists shutter_speed text;
+alter table public.photos add column if not exists focal_length text;
+alter table public.photos add column if not exists taken_at timestamptz;
+alter table public.photos add column if not exists location text;
+alter table public.photos add column if not exists scanner text;
+alter table public.photos add column if not exists notes text;
+alter table public.photos add column if not exists visibility text not null default 'public';
+alter table public.photos add column if not exists created_at timestamptz not null default now();
+alter table public.photos add column if not exists updated_at timestamptz not null default now();
 
 create index if not exists albums_user_idx on public.albums (user_id, created_at desc);
 create index if not exists albums_public_created_idx on public.albums (visibility, created_at desc);
@@ -288,3 +337,13 @@ with check (
       and series.owner_id = auth.uid()
   )
 );
+
+grant usage on schema public to anon, authenticated, service_role;
+grant select on all tables in schema public to anon, authenticated;
+grant all privileges on all tables in schema public to service_role;
+grant all privileges on all sequences in schema public to service_role;
+alter default privileges in schema public grant select on tables to anon, authenticated;
+alter default privileges in schema public grant all privileges on tables to service_role;
+alter default privileges in schema public grant all privileges on sequences to service_role;
+
+notify pgrst, 'reload schema';

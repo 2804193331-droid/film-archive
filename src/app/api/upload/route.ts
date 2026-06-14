@@ -104,6 +104,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    await ensureProfile(supabase, user);
+
     const metadata = normalizeMetadata(parsed.data.metadata);
     const createdAt = new Date().toISOString();
     const albumTitle = readAlbumTitle(metadata, user.displayName || user.username);
@@ -155,6 +157,25 @@ export async function POST(request: NextRequest) {
       { error: error instanceof Error ? error.message : "上传入库失败。" },
       { status: 400 }
     );
+  }
+}
+
+async function ensureProfile(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  user: NonNullable<ReturnType<typeof getAppSessionFromRequest>>
+) {
+  const { error } = await supabase.from("profiles").upsert(
+    {
+      id: user.id,
+      username: user.username,
+      display_name: user.displayName || user.username,
+      avatar_url: user.avatarUrl
+    },
+    { onConflict: "id" }
+  );
+
+  if (error) {
+    throw new Error(error.message);
   }
 }
 

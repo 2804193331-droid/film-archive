@@ -100,6 +100,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   const isAdmin = isAdminUser(session.id, session.username);
 
   try {
+    await ensureProfile(supabase, session);
+
     const existing = await getEditableSeries(supabase, id, session.id, isAdmin);
     if (!existing) {
       return NextResponse.json({ error: "没有找到这个作品组。" }, { status: 404 });
@@ -163,6 +165,25 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       { error: error instanceof Error ? error.message : "编辑失败。" },
       { status: 400 }
     );
+  }
+}
+
+async function ensureProfile(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  user: NonNullable<ReturnType<typeof getAppSessionFromRequest>>
+) {
+  const { error } = await supabase.from("profiles").upsert(
+    {
+      id: user.id,
+      username: user.username,
+      display_name: user.displayName || user.username,
+      avatar_url: user.avatarUrl
+    },
+    { onConflict: "id" }
+  );
+
+  if (error) {
+    throw new Error(error.message);
   }
 }
 
