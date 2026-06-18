@@ -1,5 +1,6 @@
 import { demoAlbums, demoPhotos, demoUsers } from "@/lib/demo-data";
 import { publicObjectUrl } from "@/lib/oss";
+import { normalizeRotation } from "@/lib/rotation";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import type { Album, Photo, Uploader } from "@/lib/types";
 
@@ -268,6 +269,7 @@ function mapSupabaseAlbum(item: any, albumPhotos: Photo[], owner: Uploader): Alb
     description: item.description ?? undefined,
     coverUrl: storedCoverUrl ?? cover?.originalUrl ?? demoAlbums[0].coverUrl,
     coverPhotoId: item.cover_photo_id ?? cover?.id,
+    coverRotation: cover?.rotation ?? 0,
     coverWidth: cover?.width ?? 1600,
     coverHeight: cover?.height ?? 1200,
     photoCount: photoIds.length || albumPhotos.length,
@@ -359,6 +361,7 @@ function buildPhotoSelect(excludedColumns: Set<string>) {
     "location",
     "scanner",
     "notes",
+    "rotation",
     "album_id",
     "series_id",
     "visibility",
@@ -486,6 +489,7 @@ function mapSupabasePhoto(item: any): Photo {
     location: item.location ?? undefined,
     scanner: item.scanner ?? undefined,
     notes: item.notes ?? undefined,
+    rotation: normalizeRotation(item.rotation),
     uploader,
     visibility: item.visibility ?? "public",
     createdAt: item.created_at ?? new Date().toISOString()

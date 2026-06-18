@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Camera, Film, UserRound } from "lucide-react";
+import { RotatedImage } from "@/components/rotated-image";
 import type { Photo } from "@/lib/types";
 import styles from "./photo-card.module.css";
 
@@ -22,13 +23,16 @@ export function PhotoCard({ photo }: { photo: Photo }) {
     >
       <Link className={styles.imageLink} href={`/photos/${photo.id}`} aria-label={`查看 ${photo.title}`}>
         {!loaded ? <span className={styles.skeleton} aria-hidden /> : null}
-        <img
+        <RotatedImage
           src={photo.thumbnailUrl}
           alt={photo.title}
+          rotation={photo.rotation}
+          width={photo.width}
+          height={photo.height}
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          className={loaded ? styles.loaded : ""}
-          style={{ aspectRatio: `${photo.width} / ${photo.height}` }}
+          className={styles.media}
+          imageClassName={loaded ? styles.loaded : ""}
         />
       </Link>
       <div className={styles.body}>

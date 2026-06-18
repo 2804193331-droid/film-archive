@@ -10,6 +10,7 @@ import {
   publicObjectUrl,
   safeOssObjectKey
 } from "@/lib/oss";
+import { normalizeRotation, type Rotation } from "@/lib/rotation";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -45,6 +46,7 @@ type UploadRecord = {
   location?: string;
   scanner?: string;
   notes?: string;
+  rotation: Rotation;
   visibility: "public";
 };
 
@@ -66,7 +68,8 @@ const completedFileSchema = z.object({
   size: z.number().positive().max(MAX_UPLOAD_BYTES),
   mimeType: z.string().min(1).max(120),
   width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional()
+  height: z.number().int().positive().optional(),
+  rotation: z.number().optional()
 });
 
 const uploadCompleteSchema = z.object({
@@ -134,12 +137,13 @@ export async function POST(request: NextRequest) {
     };
 
     await upsertAlbumSafely(supabase, albumPayload);
-    await insertPhotosWithSchemaFallback(supabase, records);
+    const warning = await insertPhotosWithSchemaFallback(supabase, records);
 
     return NextResponse.json({
       uploaded: records.length,
       albumId: parsed.data.albumId,
-      urls: records.map((record) => record.original_url)
+      urls: records.map((record) => record.original_url),
+      warning
     });
   } catch (error) {
     await cleanupFailedUpload(supabase, parsed.data.albumId, parsed.data.files.map((file) => file.originalKey));
@@ -218,6 +222,7 @@ function createUploadRecord({
     taken_at: takenAt,
     location: metadata.location,
     notes: metadata.notes,
+    rotation: normalizeRotation(file.rotation),
     visibility: "public"
   };
 }
@@ -247,6 +252,7 @@ async function insertPhotosWithSchemaFallback(
   records: UploadRecord[]
 ) {
   let insertRecords = records.map(stripUndefinedValues);
+  let warning: string | null = null;
   const requiredColumns = new Set([
     "id",
     "user_id",
@@ -259,11 +265,15 @@ async function insertPhotosWithSchemaFallback(
 
   for (let attempt = 0; attempt < 32; attempt += 1) {
     const { error } = await supabase.from("photos").insert(insertRecords);
-    if (!error) return;
+    if (!error) return warning;
 
     const missingColumn = extractMissingPhotoColumn(error.message);
     if (!missingColumn || requiredColumns.has(missingColumn)) {
       throw new Error(error.message);
+    }
+
+    if (missingColumn === "rotation") {
+      warning = "数据库 photos 表还没有 rotation 字段，请重新执行 supabase/schema.sql 后再保存旋转。";
     }
 
     insertRecords = insertRecords.map((record) => {

@@ -112,12 +112,10 @@
   border-color: color-mix(in srgb, var(--accent) 64%, var(--line));
 }
 
-.manageTile img {
+.manageTileImage {
   display: block;
   aspect-ratio: 4 / 3;
   width: 100%;
-  object-fit: cover;
-  background: var(--surface-subtle);
 }
 
 .manageTileMeta {
@@ -150,13 +148,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   padding: 8px;
 }
 
 .manageTileActions :global(.ghost-button) {
   min-height: 34px;
-  flex: 1 1 120px;
+  flex: 1 1 100%;
   padding: 0 10px;
   font-size: 13px;
 }

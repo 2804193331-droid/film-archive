@@ -3,8 +3,10 @@
 import { useRouter } from "next/navigation";
 import type { SyntheticEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ImagePlus, RotateCcw, Star, Trash2, UploadCloud, X } from "lucide-react";
+import { ImagePlus, RotateCcw, RotateCw, Star, Trash2, UploadCloud, X } from "lucide-react";
+import { RotatedImage } from "@/components/rotated-image";
 import { cameras, films, lenses } from "@/lib/catalog";
+import { normalizeRotation, rotateBy, type Rotation } from "@/lib/rotation";
 import type { Album, Photo } from "@/lib/types";
 import styles from "./edit-album-form.module.css";
 
@@ -25,6 +27,9 @@ type LocalPhoto = {
   url: string;
   name: string;
   size: number;
+  width?: number;
+  height?: number;
+  rotation: Rotation;
 };
 
 type ReplacementPhoto = LocalPhoto & {
@@ -57,6 +62,9 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
   const [addedPhotos, setAddedPhotos] = useState<LocalPhoto[]>([]);
   const [replacementPhotos, setReplacementPhotos] = useState<Record<string, ReplacementPhoto>>({});
   const [deletedPhotoIds, setDeletedPhotoIds] = useState<Set<string>>(new Set());
+  const [photoRotations, setPhotoRotations] = useState<Record<string, Rotation>>(() =>
+    Object.fromEntries(photos.map((photo) => [photo.id, photo.rotation]))
+  );
   const [coverSelection, setCoverSelection] = useState<string | null>(album.coverPhotoId ?? photos[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -109,10 +117,12 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
       file,
       name: file.name,
       size: file.size,
-      url: URL.createObjectURL(file)
+      url: URL.createObjectURL(file),
+      rotation: 0 as Rotation
     }));
 
     setAddedPhotos((current) => [...current, ...nextPhotos]);
+    void hydrateAddedPhotoDimensions(nextPhotos);
     setCoverSelection((current) => current ?? nextPhotos[0]?.id ?? null);
     setMessage("");
   }
@@ -149,6 +159,49 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
     });
   }
 
+  function currentPhotoRotation(photoId: string) {
+    return photoRotations[photoId] ?? photos.find((photo) => photo.id === photoId)?.rotation ?? 0;
+  }
+
+  function rotateExistingPhoto(photoId: string, delta: 90 | -90) {
+    setPhotoRotations((current) => ({
+      ...current,
+      [photoId]: rotateBy(current[photoId] ?? photos.find((photo) => photo.id === photoId)?.rotation ?? 0, delta)
+    }));
+  }
+
+  function resetExistingRotation(photoId: string) {
+    setPhotoRotations((current) => ({ ...current, [photoId]: 0 as Rotation }));
+  }
+
+  function rotateAddedPhoto(photoId: string, delta: 90 | -90) {
+    setAddedPhotos((current) =>
+      current.map((photo) => (photo.id === photoId ? { ...photo, rotation: rotateBy(photo.rotation, delta) } : photo))
+    );
+  }
+
+  function rotateReplacementPhoto(photoId: string, delta: 90 | -90) {
+    setReplacementPhotos((current) => {
+      const existing = current[photoId];
+      if (!existing) return current;
+      return {
+        ...current,
+        [photoId]: { ...existing, rotation: rotateBy(existing.rotation, delta) }
+      };
+    });
+  }
+
+  function resetReplacementRotation(photoId: string) {
+    setReplacementPhotos((current) => {
+      const existing = current[photoId];
+      if (!existing) return current;
+      return {
+        ...current,
+        [photoId]: { ...existing, rotation: 0 as Rotation }
+      };
+    });
+  }
+
   function setReplacement(photoId: string, fileList: FileList | null) {
     const file = fileList?.[0];
     if (!file) return;
@@ -165,18 +218,21 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
 
     const previous = replacementPhotos[photoId];
     if (previous) URL.revokeObjectURL(previous.url);
+    const localId = makeClientId(file);
 
     setReplacementPhotos((current) => ({
       ...current,
       [photoId]: {
-        id: makeClientId(file),
+        id: localId,
         photoId,
         file,
         name: file.name,
         size: file.size,
-        url: URL.createObjectURL(file)
+        url: URL.createObjectURL(file),
+        rotation: currentPhotoRotation(photoId)
       }
     }));
+    void hydrateReplacementPhotoDimensions(photoId, localId, file);
     setMessage("");
   }
 
@@ -240,7 +296,8 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
               size: item.photo.file.size,
               mimeType: signed.mimeType,
               width: dimensions?.width,
-              height: dimensions?.height
+              height: dimensions?.height,
+              rotation: item.photo.rotation
             }
           };
         });
@@ -254,6 +311,10 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
       }
 
       const coverPhotoId = resolveCoverPhotoId(coverSelection, addedCompleted);
+      const photoRotationsPayload = visiblePhotos.map((photo) => ({
+        photoId: photo.id,
+        rotation: normalizeRotation(replacementPhotos[photo.id]?.rotation ?? currentPhotoRotation(photo.id))
+      }));
 
       setMessage("正在保存修改...");
       const response = await fetch(`/api/albums/${album.id}`, {
@@ -262,6 +323,7 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
         body: JSON.stringify({
           ...form,
           coverPhotoId,
+          photoRotations: photoRotationsPayload,
           deletePhotoIds: Array.from(deletedPhotoIds),
           files: addedCompleted.map(({ localId, ...file }) => file),
           replacePhotos: replacementCompleted
@@ -274,6 +336,15 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
       }
 
       clearLocalUploads();
+      if (body.warning) {
+        setMessage(body.warning);
+        window.setTimeout(() => {
+          router.push(`/album/${album.id}`);
+          router.refresh();
+        }, 1800);
+        return;
+      }
+
       router.push(`/album/${album.id}`);
       router.refresh();
     } catch (error) {
@@ -288,6 +359,36 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
     Object.values(replacementPhotos).forEach((photo) => URL.revokeObjectURL(photo.url));
     setAddedPhotos([]);
     setReplacementPhotos({});
+  }
+
+  async function hydrateAddedPhotoDimensions(photos: LocalPhoto[]) {
+    const dimensions = await Promise.all(
+      photos.map(async (photo) => ({
+        id: photo.id,
+        dimensions: await readImageDimensions(photo.file)
+      }))
+    );
+
+    setAddedPhotos((current) =>
+      current.map((photo) => {
+        const match = dimensions.find((item) => item.id === photo.id);
+        return match?.dimensions ? { ...photo, width: match.dimensions.width, height: match.dimensions.height } : photo;
+      })
+    );
+  }
+
+  async function hydrateReplacementPhotoDimensions(photoId: string, localId: string, file: File) {
+    const dimensions = await readImageDimensions(file);
+    if (!dimensions) return;
+
+    setReplacementPhotos((current) => {
+      const existing = current[photoId];
+      if (!existing || existing.id !== localId) return current;
+      return {
+        ...current,
+        [photoId]: { ...existing, width: dimensions.width, height: dimensions.height }
+      };
+    });
   }
 
   return (
@@ -350,20 +451,40 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
             {visiblePhotos.map((photo) => {
               const replacement = replacementPhotos[photo.id];
               const isCover = coverSelection === photo.id;
+              const rotation = replacement?.rotation ?? currentPhotoRotation(photo.id);
               return (
                 <article className={`${styles.manageTile} ${isCover ? styles.manageTileActive : ""}`} key={photo.id}>
-                  <img
+                  <RotatedImage
                     src={replacement?.url ?? editPreviewUrl(photo.originalUrl)}
                     alt={photo.title}
+                    rotation={rotation}
+                    width={replacement?.width ?? photo.width}
+                    height={replacement?.height ?? photo.height}
                     loading="lazy"
                     decoding="async"
+                    className={styles.manageTileImage}
                     onError={replacement ? undefined : (event) => fallBackToOriginal(event, photo.originalUrl)}
                   />
                   <div className={styles.manageTileMeta}>
                     {isCover ? <strong>封面</strong> : <span>照片</span>}
                     {replacement ? <span>已替换</span> : null}
+                    {rotation ? <span>{rotation}°</span> : null}
                   </div>
                   <div className={styles.manageTileActions}>
+                    <button className="icon-button" type="button" disabled={busy} onClick={() => (replacement ? rotateReplacementPhoto(photo.id, -90) : rotateExistingPhoto(photo.id, -90))} title="左转 90°">
+                      <RotateCcw size={15} aria-hidden />
+                      <span className="sr-only">左转 90°</span>
+                    </button>
+                    <button className="icon-button" type="button" disabled={busy} onClick={() => (replacement ? rotateReplacementPhoto(photo.id, 90) : rotateExistingPhoto(photo.id, 90))} title="右转 90°">
+                      <RotateCw size={15} aria-hidden />
+                      <span className="sr-only">右转 90°</span>
+                    </button>
+                    {rotation ? (
+                      <button className="icon-button" type="button" disabled={busy} onClick={() => (replacement ? resetReplacementRotation(photo.id) : resetExistingRotation(photo.id))} title="重置方向">
+                        <X size={15} aria-hidden />
+                        <span className="sr-only">重置方向</span>
+                      </button>
+                    ) : null}
                     <button className="ghost-button" type="button" disabled={busy || isCover} onClick={() => setCoverSelection(photo.id)}>
                       <Star size={14} aria-hidden />
                       设为封面
@@ -392,11 +513,35 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
               const isCover = coverSelection === photo.id;
               return (
                 <article className={`${styles.manageTile} ${isCover ? styles.manageTileActive : ""}`} key={photo.id}>
-                  <img src={photo.url} alt={photo.name} loading="lazy" decoding="async" />
+                  <RotatedImage
+                    src={photo.url}
+                    alt={photo.name}
+                    rotation={photo.rotation}
+                    width={photo.width}
+                    height={photo.height}
+                    loading="lazy"
+                    decoding="async"
+                    className={styles.manageTileImage}
+                  />
                   <div className={styles.manageTileMeta}>
                     {isCover ? <strong>封面</strong> : <span>新增</span>}
+                    {photo.rotation ? <span>{photo.rotation}°</span> : null}
                   </div>
                   <div className={styles.manageTileActions}>
+                    <button className="icon-button" type="button" disabled={busy} onClick={() => rotateAddedPhoto(photo.id, -90)} title="左转 90°">
+                      <RotateCcw size={15} aria-hidden />
+                      <span className="sr-only">左转 90°</span>
+                    </button>
+                    <button className="icon-button" type="button" disabled={busy} onClick={() => rotateAddedPhoto(photo.id, 90)} title="右转 90°">
+                      <RotateCw size={15} aria-hidden />
+                      <span className="sr-only">右转 90°</span>
+                    </button>
+                    {photo.rotation ? (
+                      <button className="icon-button" type="button" disabled={busy} onClick={() => setAddedPhotos((current) => current.map((item) => (item.id === photo.id ? { ...item, rotation: 0 as Rotation } : item)))} title="重置方向">
+                        <X size={15} aria-hidden />
+                        <span className="sr-only">重置方向</span>
+                      </button>
+                    ) : null}
                     <button className="ghost-button" type="button" disabled={busy || isCover} onClick={() => setCoverSelection(photo.id)}>
                       <Star size={14} aria-hidden />
                       设为封面

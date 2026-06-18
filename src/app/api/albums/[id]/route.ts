@@ -11,6 +11,7 @@ import {
   publicObjectUrl,
   safeOssObjectKey
 } from "@/lib/oss";
+import { normalizeRotation, type Rotation } from "@/lib/rotation";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -53,6 +54,7 @@ type PhotoInsert = {
   taken_at?: string;
   location?: string;
   notes?: string;
+  rotation: Rotation;
   visibility: "public";
 };
 
@@ -63,7 +65,8 @@ const uploadedFileSchema = z.object({
   size: z.number().positive().max(MAX_UPLOAD_BYTES),
   mimeType: z.string().min(1).max(120),
   width: z.number().int().positive().optional(),
-  height: z.number().int().positive().optional()
+  height: z.number().int().positive().optional(),
+  rotation: z.number().optional()
 });
 
 const patchSchema = z.object({
@@ -78,6 +81,16 @@ const patchSchema = z.object({
   files: z.array(uploadedFileSchema).max(MAX_UPLOAD_FILES).optional()
     .default([]),
   coverPhotoId: z.string().uuid().nullable().optional(),
+  photoRotations: z
+    .array(
+      z.object({
+        photoId: z.string().uuid(),
+        rotation: z.number()
+      })
+    )
+    .max(MAX_UPLOAD_FILES)
+    .optional()
+    .default([]),
   deletePhotoIds: z.array(z.string().uuid()).max(MAX_UPLOAD_FILES).optional().default([]),
   replacePhotos: z
     .array(
@@ -160,22 +173,30 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       })
     );
 
+    const warnings: string[] = [];
     if (newPhotos.length) {
-      await insertPhotosWithSchemaFallback(supabase, newPhotos);
+      const warning = await insertPhotosWithSchemaFallback(supabase, newPhotos);
+      if (warning) warnings.push(warning);
     }
 
     if (parsed.data.replacePhotos.length) {
-      await replacePhotosInAlbum(supabase, {
+      const warning = await replacePhotosInAlbum(supabase, {
         albumId: id,
         replacements: parsed.data.replacePhotos,
         updates,
         userId: session.id,
         isAdmin
       });
+      if (warning) warnings.push(warning);
     }
 
     if (parsed.data.deletePhotoIds.length) {
       await deletePhotosFromAlbum(supabase, id, parsed.data.deletePhotoIds, session.id, isAdmin);
+    }
+
+    if (parsed.data.photoRotations.length) {
+      const warning = await updatePhotoRotations(supabase, id, parsed.data.photoRotations, session.id, isAdmin);
+      if (warning) warnings.push(warning);
     }
 
     if (parsed.data.coverPhotoId !== undefined) {
@@ -184,7 +205,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       await ensureAlbumHasCover(supabase, id, session.id, isAdmin);
     }
 
-    return NextResponse.json({ ok: true, addedPhotos: newPhotos.length });
+    return NextResponse.json({ ok: true, addedPhotos: newPhotos.length, warning: warnings[0] });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "编辑失败。" },
@@ -344,6 +365,7 @@ function createPhotoInsert({
     taken_at: updates.taken_at,
     location: updates.location,
     notes: updates.notes,
+    rotation: normalizeRotation(file.rotation),
     visibility: "public"
   };
 }
@@ -353,15 +375,20 @@ async function insertPhotosWithSchemaFallback(
   records: PhotoInsert[]
 ) {
   let insertRecords = records.map(stripUndefinedValues);
+  let warning: string | null = null;
   const requiredColumns = new Set(["id", "user_id", "title", "original_path", "preview_path", "thumbnail_path", "visibility"]);
 
   for (let attempt = 0; attempt < 32; attempt += 1) {
     const { error } = await supabase.from("photos").insert(insertRecords);
-    if (!error) return;
+    if (!error) return warning;
 
     const missingColumn = extractMissingPhotoColumn(error.message);
     if (!missingColumn || requiredColumns.has(missingColumn)) {
       throw new Error(error.message);
+    }
+
+    if (missingColumn === "rotation") {
+      warning = "数据库 photos 表还没有 rotation 字段，请重新执行 supabase/schema.sql 后再保存旋转。";
     }
 
     insertRecords = insertRecords.map((record) => {
@@ -401,6 +428,7 @@ async function replacePhotosInAlbum(
 
   const existingById = new Map((data ?? []).map((item: any) => [item.id as string, item]));
   const oldKeys: string[] = [];
+  let warning: string | null = null;
 
   for (const replacement of replacements) {
     const existing = existingById.get(replacement.photoId);
@@ -408,7 +436,7 @@ async function replacePhotosInAlbum(
       throw new Error("要替换的照片不属于这个摄影组。");
     }
 
-    await updatePhotoWithSchemaFallback(
+    const updateWarning = await updatePhotoWithSchemaFallback(
       supabase,
       stripUndefinedValues(createPhotoFileUpdate(replacement.file, updates, userId, albumId)),
       replacement.photoId,
@@ -416,6 +444,7 @@ async function replacePhotosInAlbum(
       userId,
       isAdmin
     );
+    if (updateWarning) warning = updateWarning;
 
     if (typeof existing.original_path === "string") {
       oldKeys.push(existing.original_path);
@@ -423,6 +452,7 @@ async function replacePhotosInAlbum(
   }
 
   await deleteOssObjects(oldKeys);
+  return warning;
 }
 
 async function updatePhotoWithSchemaFallback(
@@ -434,17 +464,22 @@ async function updatePhotoWithSchemaFallback(
   isAdmin: boolean
 ) {
   let nextPayload = payload;
+  let warning: string | null = null;
 
   for (let attempt = 0; attempt < 16; attempt += 1) {
     let update = supabase.from("photos").update(nextPayload).eq("id", photoId).eq("album_id", albumId);
     if (!isAdmin) update = update.eq("user_id", userId);
 
     const { error } = await update;
-    if (!error) return;
+    if (!error) return warning;
 
     const missingColumn = extractMissingPhotoColumn(error.message);
     if (!missingColumn || !(missingColumn in nextPayload)) {
       throw new Error(error.message);
+    }
+
+    if (missingColumn === "rotation") {
+      warning = "数据库 photos 表还没有 rotation 字段，请重新执行 supabase/schema.sql 后再保存旋转。";
     }
 
     const fallbackPayload = { ...nextPayload };
@@ -486,6 +521,34 @@ async function deletePhotosFromAlbum(
   }
 
   await deleteOssObjects(data.map((photo: any) => photo.original_path));
+}
+
+async function updatePhotoRotations(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  rotations: Array<{ photoId: string; rotation: number }>,
+  userId: string,
+  isAdmin: boolean
+) {
+  for (const item of rotations) {
+    let update = supabase
+      .from("photos")
+      .update({ rotation: normalizeRotation(item.rotation) })
+      .eq("id", item.photoId)
+      .eq("album_id", albumId);
+    if (!isAdmin) update = update.eq("user_id", userId);
+
+    const { error } = await update;
+    if (!error) continue;
+
+    if (extractMissingPhotoColumn(error.message) === "rotation") {
+      return "数据库 photos 表还没有 rotation 字段，请重新执行 supabase/schema.sql 后再保存旋转。";
+    }
+
+    throw new Error(error.message);
+  }
+
+  return null;
 }
 
 async function setAlbumCoverByPhotoId(
@@ -630,6 +693,7 @@ function createPhotoFileUpdate(
     taken_at: updates.taken_at,
     location: updates.location,
     notes: updates.notes,
+    rotation: normalizeRotation(file.rotation),
     visibility: "public"
   };
 }

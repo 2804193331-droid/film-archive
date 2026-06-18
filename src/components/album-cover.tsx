@@ -1,9 +1,22 @@
+import { RotatedImage } from "@/components/rotated-image";
 import styles from "./album-cover.module.css";
 
-export function AlbumCover({ src, alt }: { src: string; alt: string }) {
+export function AlbumCover({
+  src,
+  alt,
+  rotation,
+  width,
+  height
+}: {
+  src: string;
+  alt: string;
+  rotation?: number;
+  width?: number;
+  height?: number;
+}) {
   return (
     <div className={styles.cover}>
-      <img src={src} alt={alt} />
+      <RotatedImage src={src} alt={alt} rotation={rotation} width={width} height={height} fit="cover" className={styles.media} />
     </div>
   );
 }

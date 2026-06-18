@@ -7,13 +7,16 @@ import {
   FolderUp,
   ImageIcon,
   RotateCcw,
+  RotateCw,
   Star,
   Trash2,
   UploadCloud,
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { RotatedImage } from "@/components/rotated-image";
 import { cameras, films, lenses } from "@/lib/catalog";
+import { rotateBy, type Rotation } from "@/lib/rotation";
 import styles from "./upload-dropzone.module.css";
 
 type UploadState = "idle" | "uploading" | "done" | "error";
@@ -24,6 +27,9 @@ type SelectedPhoto = {
   name: string;
   size: number;
   url: string;
+  width?: number;
+  height?: number;
+  rotation: Rotation;
 };
 
 type UploadMetadata = {
@@ -202,10 +208,12 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
       file,
       name: file.name,
       size: file.size,
-      url: URL.createObjectURL(file)
+      url: URL.createObjectURL(file),
+      rotation: 0 as Rotation
     }));
 
     setSelectedPhotos((current) => [...current, ...nextPhotos]);
+    void hydratePhotoDimensions(nextPhotos);
     setCoverPhotoId((current) => current ?? nextPhotos[0]?.id ?? null);
     setMessage("");
 
@@ -227,6 +235,32 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
     setSelectedPhotos(nextPhotos);
     setCoverPhotoId((current) => (current === photoId ? nextPhotos[0]?.id ?? null : current));
     setMessage("");
+  }
+
+  function rotatePhoto(photoId: string, delta: 90 | -90) {
+    setSelectedPhotos((current) =>
+      current.map((photo) => (photo.id === photoId ? { ...photo, rotation: rotateBy(photo.rotation, delta) } : photo))
+    );
+  }
+
+  function resetRotation(photoId: string) {
+    setSelectedPhotos((current) => current.map((photo) => (photo.id === photoId ? { ...photo, rotation: 0 as Rotation } : photo)));
+  }
+
+  async function hydratePhotoDimensions(photos: SelectedPhoto[]) {
+    const dimensions = await Promise.all(
+      photos.map(async (photo) => ({
+        id: photo.id,
+        dimensions: await readImageDimensions(photo.file)
+      }))
+    );
+
+    setSelectedPhotos((current) =>
+      current.map((photo) => {
+        const match = dimensions.find((item) => item.id === photo.id);
+        return match?.dimensions ? { ...photo, width: match.dimensions.width, height: match.dimensions.height } : photo;
+      })
+    );
   }
 
   function clearFiles() {
@@ -307,7 +341,8 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
           size: photo.file.size,
           mimeType: signed.mimeType,
           width: dimensions?.width,
-          height: dimensions?.height
+          height: dimensions?.height,
+          rotation: photo.rotation
         };
       });
 
@@ -331,10 +366,10 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
       setState("done");
       setProgress(100);
       resetSelectedFiles();
-      setMessage("上传完成。");
+      setMessage(completeBody.warning ?? "上传完成。");
       window.setTimeout(() => {
         window.location.href = `/album/${albumId}`;
-      }, 700);
+      }, completeBody.warning ? 1800 : 700);
     } catch (error) {
       setState("error");
       setMessage(error instanceof Error ? error.message : "上传失败，请重试。");
@@ -365,7 +400,17 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             </div>
 
             <div className={styles.previewHero}>
-              <img src={coverPhoto?.url} alt={coverPhoto?.name ?? "照片预览"} />
+              {coverPhoto ? (
+                <RotatedImage
+                  src={coverPhoto.url}
+                  alt={coverPhoto.name}
+                  rotation={coverPhoto.rotation}
+                  width={coverPhoto.width}
+                  height={coverPhoto.height}
+                  fit="contain"
+                  className={styles.previewHeroImage}
+                />
+              ) : null}
             </div>
 
             <div className={styles.previewInfo}>
@@ -378,12 +423,34 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
                 const isCover = photo.id === coverPhoto?.id;
                 return (
                   <div className={`${styles.previewTile} ${isCover ? styles.previewTileActive : ""}`} key={photo.id}>
-                    <img src={photo.url} alt={photo.name} title={photo.name} />
+                    <RotatedImage
+                      src={photo.url}
+                      alt={photo.name}
+                      title={photo.name}
+                      rotation={photo.rotation}
+                      width={photo.width}
+                      height={photo.height}
+                      className={styles.previewTileImage}
+                    />
                     <div className={styles.previewTileMeta}>
                       <span>{index + 1}</span>
                       {isCover ? <strong>封面</strong> : null}
                     </div>
                     <div className={styles.previewTileActions}>
+                      <button className="icon-button" type="button" disabled={pickerDisabled} onClick={() => rotatePhoto(photo.id, -90)} title="左转 90°">
+                        <RotateCcw size={15} aria-hidden />
+                        <span className="sr-only">左转 90°</span>
+                      </button>
+                      <button className="icon-button" type="button" disabled={pickerDisabled} onClick={() => rotatePhoto(photo.id, 90)} title="右转 90°">
+                        <RotateCw size={15} aria-hidden />
+                        <span className="sr-only">右转 90°</span>
+                      </button>
+                      {photo.rotation ? (
+                        <button className="icon-button" type="button" disabled={pickerDisabled} onClick={() => resetRotation(photo.id)} title="重置方向">
+                          <X size={15} aria-hidden />
+                          <span className="sr-only">重置方向</span>
+                        </button>
+                      ) : null}
                       <button
                         className="ghost-button"
                         type="button"

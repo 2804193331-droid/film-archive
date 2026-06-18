@@ -99,6 +99,7 @@ create table if not exists public.photos (
   location text,
   scanner text,
   notes text,
+  rotation integer not null default 0 check (rotation in (0, 90, 180, 270)),
   album_id uuid references public.albums(id) on delete set null,
   series_id uuid references public.series(id) on delete set null,
   visibility text not null default 'public' check (visibility in ('public', 'private', 'unlisted')),
@@ -173,9 +174,27 @@ alter table public.photos add column if not exists taken_at timestamptz;
 alter table public.photos add column if not exists location text;
 alter table public.photos add column if not exists scanner text;
 alter table public.photos add column if not exists notes text;
+alter table public.photos add column if not exists rotation integer not null default 0;
+update public.photos set rotation = 0 where rotation is null or rotation not in (0, 90, 180, 270);
+alter table public.photos alter column rotation set default 0;
+alter table public.photos alter column rotation set not null;
 alter table public.photos add column if not exists visibility text not null default 'public';
 alter table public.photos add column if not exists created_at timestamptz not null default now();
 alter table public.photos add column if not exists updated_at timestamptz not null default now();
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'photos_rotation_check'
+      and conrelid = 'public.photos'::regclass
+  ) then
+    alter table public.photos
+      add constraint photos_rotation_check
+      check (rotation in (0, 90, 180, 270));
+  end if;
+end $$;
 
 do $$
 begin

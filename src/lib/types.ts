@@ -1,4 +1,5 @@
 export type Visibility = "public" | "private" | "unlisted";
+export type Rotation = 0 | 90 | 180 | 270;
 
 export type Uploader = {
   id: string;
@@ -37,6 +38,7 @@ export type Photo = {
   location?: string;
   scanner?: string;
   notes?: string;
+  rotation: Rotation;
   uploader: Uploader;
   visibility: Visibility;
   createdAt: string;
@@ -49,6 +51,7 @@ export type Album = {
   description?: string;
   coverUrl: string;
   coverPhotoId?: string;
+  coverRotation: Rotation;
   coverWidth: number;
   coverHeight: number;
   photoCount: number;

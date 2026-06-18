@@ -10,11 +10,10 @@
   overflow: hidden;
 }
 
-.stage img {
+.stageImage {
   width: 100%;
-  height: auto;
+  height: 100%;
   max-height: calc(100vh - 140px);
-  object-fit: contain;
 }
 
 .overlay {

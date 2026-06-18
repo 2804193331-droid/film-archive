@@ -19,7 +19,13 @@ export default async function AlbumDetailPage({ params }: { params: Promise<{ id
   return (
     <main className="page-shell">
       <section className={styles.hero}>
-        <AlbumCover src={album.coverUrl} alt={album.title} />
+        <AlbumCover
+          src={album.coverUrl}
+          alt={album.title}
+          rotation={album.coverRotation}
+          width={album.coverWidth}
+          height={album.coverHeight}
+        />
         <div className={styles.copy}>
           <p>ROLL</p>
           <h1>{album.title}</h1>

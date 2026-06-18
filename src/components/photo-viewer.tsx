@@ -3,17 +3,26 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
+import { RotatedImage } from "@/components/rotated-image";
+import { normalizeRotation } from "@/lib/rotation";
 import styles from "./photo-viewer.module.css";
 
 export function PhotoViewer({
   src,
-  alt
+  alt,
+  rotation = 0,
+  width,
+  height
 }: {
   src: string;
   alt: string;
+  rotation?: number;
+  width?: number;
+  height?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState(1);
+  const normalizedRotation = normalizeRotation(rotation);
 
   useEffect(() => {
     if (!open) return;
@@ -37,7 +46,15 @@ export function PhotoViewer({
   return (
     <>
       <button className={styles.stage} type="button" onClick={() => setOpen(true)}>
-        <img src={src} alt={alt} />
+        <RotatedImage
+          src={src}
+          alt={alt}
+          rotation={normalizedRotation}
+          width={width}
+          height={height}
+          fit="contain"
+          className={styles.stageImage}
+        />
       </button>
 
       {open ? (
@@ -58,7 +75,7 @@ export function PhotoViewer({
             alt={alt}
             drag
             dragMomentum={false}
-            style={{ scale }}
+            style={{ scale, rotate: normalizedRotation }}
             onClick={(event) => event.stopPropagation()}
             onWheel={(event) => {
               event.stopPropagation();

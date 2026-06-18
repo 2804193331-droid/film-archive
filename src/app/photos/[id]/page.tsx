@@ -29,7 +29,7 @@ export default async function PhotoDetailPage({ params }: { params: Promise<{ id
   return (
     <main className="page-shell">
       <section className={styles.layout}>
-        <PhotoViewer src={photo.previewUrl} alt={photo.title} />
+        <PhotoViewer src={photo.previewUrl} alt={photo.title} rotation={photo.rotation} width={photo.width} height={photo.height} />
 
         <aside className={styles.sidebar}>
           <div>

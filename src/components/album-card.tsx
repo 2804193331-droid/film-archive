@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Camera, Film, Images, UserRound } from "lucide-react";
+import { RotatedImage } from "@/components/rotated-image";
 import type { Album } from "@/lib/types";
 import styles from "./album-card.module.css";
 
@@ -23,13 +24,16 @@ export function AlbumCard({ album, children }: { album: Album; children?: ReactN
     >
       <Link className={styles.cover} href={`/album/${album.id}`} aria-label={`查看 ${album.title}`}>
         {!loaded ? <span className={styles.skeleton} aria-hidden /> : null}
-        <img
+        <RotatedImage
           src={album.coverUrl}
           alt={album.title}
+          rotation={album.coverRotation}
+          width={album.coverWidth}
+          height={album.coverHeight}
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          className={loaded ? styles.loaded : ""}
-          style={{ aspectRatio: `${album.coverWidth} / ${album.coverHeight}` }}
+          className={styles.media}
+          imageClassName={loaded ? styles.loaded : ""}
         />
       </Link>
 

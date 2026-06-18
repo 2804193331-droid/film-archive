@@ -81,11 +81,9 @@
   place-items: center;
 }
 
-.previewHero img {
-  display: block;
+.previewHeroImage {
   width: 100%;
   height: 100%;
-  object-fit: contain;
 }
 
 .previewGrid {
@@ -107,12 +105,10 @@
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
 }
 
-.previewTile img {
+.previewTileImage {
   display: block;
   aspect-ratio: 1;
   width: 100%;
-  object-fit: cover;
-  background: var(--surface-subtle);
 }
 
 .previewTileMeta {
@@ -145,14 +141,15 @@
 .previewTileActions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  justify-content: flex-start;
   gap: 8px;
   padding: 8px;
 }
 
 .previewTileActions :global(.ghost-button) {
   min-height: 34px;
-  flex: 1;
+  flex: 1 1 100%;
   padding: 0 10px;
   font-size: 13px;
 }
