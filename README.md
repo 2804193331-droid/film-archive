@@ -2,7 +2,7 @@
 
 Film Archive 是一个 Next.js 摄影作品社区与胶片作品档案馆。
 
-当前版本使用：
+当前版本使用
 
 - Next.js
 - Supabase Auth
