@@ -2,11 +2,10 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getAppSessionFromRequest } from "@/lib/app-session";
-import { isAdminUser } from "@/lib/admin";
+import { canAccessAdmin } from "@/lib/admin";
 import { cameras } from "@/lib/catalog";
 import {
   deleteOssObjects,
-  imageProcessUrl,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES,
   publicObjectUrl,
@@ -77,6 +76,19 @@ const patchSchema = z.object({
   location: z.string().optional(),
   notes: z.string().optional(),
   files: z.array(uploadedFileSchema).max(MAX_UPLOAD_FILES).optional()
+    .default([]),
+  coverPhotoId: z.string().uuid().nullable().optional(),
+  deletePhotoIds: z.array(z.string().uuid()).max(MAX_UPLOAD_FILES).optional().default([]),
+  replacePhotos: z
+    .array(
+      z.object({
+        photoId: z.string().uuid(),
+        file: uploadedFileSchema
+      })
+    )
+    .max(MAX_UPLOAD_FILES)
+    .optional()
+    .default([])
 });
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ id: string }> }) {
@@ -97,7 +109,7 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     return NextResponse.json({ error: "编辑信息无效。" }, { status: 400 });
   }
 
-  const isAdmin = isAdminUser(session.id, session.username);
+  const isAdmin = canAccessAdmin(session);
 
   try {
     await ensureProfile(supabase, session);
@@ -137,9 +149,8 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
       await photoUpdate;
     }
 
-    const files = parsed.data.files ?? [];
     const createdAt = new Date().toISOString();
-    const newPhotos = files.map((file) =>
+    const newPhotos = parsed.data.files.map((file) =>
       createPhotoInsert({
         albumId: id,
         file,
@@ -151,7 +162,26 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
 
     if (newPhotos.length) {
       await insertPhotosWithSchemaFallback(supabase, newPhotos);
-      await updateCoverIfMissing(supabase, id, newPhotos[0].thumbnail_url, session.id, isAdmin);
+    }
+
+    if (parsed.data.replacePhotos.length) {
+      await replacePhotosInAlbum(supabase, {
+        albumId: id,
+        replacements: parsed.data.replacePhotos,
+        updates,
+        userId: session.id,
+        isAdmin
+      });
+    }
+
+    if (parsed.data.deletePhotoIds.length) {
+      await deletePhotosFromAlbum(supabase, id, parsed.data.deletePhotoIds, session.id, isAdmin);
+    }
+
+    if (parsed.data.coverPhotoId !== undefined) {
+      await setAlbumCoverByPhotoId(supabase, id, parsed.data.coverPhotoId, session.id, isAdmin);
+    } else {
+      await ensureAlbumHasCover(supabase, id, session.id, isAdmin);
     }
 
     return NextResponse.json({ ok: true, addedPhotos: newPhotos.length });
@@ -194,7 +224,7 @@ export async function DELETE(request: NextRequest, context: { params: Promise<{ 
   }
 
   const { id } = await context.params;
-  const isAdmin = isAdminUser(session.id, session.username);
+  const isAdmin = canAccessAdmin(session);
 
   try {
     const existing = await getEditableAlbum(supabase, id, session.id, isAdmin);
@@ -298,8 +328,8 @@ function createPhotoInsert({
     thumbnail_path: originalKey,
     image_path: originalKey,
     original_url: publicObjectUrl(originalKey),
-    preview_url: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
-    thumbnail_url: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
+    preview_url: publicObjectUrl(originalKey),
+    thumbnail_url: publicObjectUrl(originalKey),
     file_size: file.size,
     mime_type: file.mimeType,
     uploaded_at: createdAt,
@@ -344,16 +374,268 @@ async function insertPhotosWithSchemaFallback(
   throw new Error("数据库 photos 表缺少过多字段，请重新执行 supabase/schema.sql。");
 }
 
-async function updateCoverIfMissing(
+async function replacePhotosInAlbum(
   supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  {
+    albumId,
+    replacements,
+    updates,
+    userId,
+    isAdmin
+  }: {
+    albumId: string;
+    replacements: Array<{ photoId: string; file: z.infer<typeof uploadedFileSchema> }>;
+    updates: AlbumUpdate;
+    userId: string;
+    isAdmin: boolean;
+  }
+) {
+  const ids = replacements.map((item) => item.photoId);
+  let query = supabase.from("photos").select("id,original_path").eq("album_id", albumId).in("id", ids);
+  if (!isAdmin) query = query.eq("user_id", userId);
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const existingById = new Map((data ?? []).map((item: any) => [item.id as string, item]));
+  const oldKeys: string[] = [];
+
+  for (const replacement of replacements) {
+    const existing = existingById.get(replacement.photoId);
+    if (!existing) {
+      throw new Error("要替换的照片不属于这个摄影组。");
+    }
+
+    await updatePhotoWithSchemaFallback(
+      supabase,
+      stripUndefinedValues(createPhotoFileUpdate(replacement.file, updates, userId, albumId)),
+      replacement.photoId,
+      albumId,
+      userId,
+      isAdmin
+    );
+
+    if (typeof existing.original_path === "string") {
+      oldKeys.push(existing.original_path);
+    }
+  }
+
+  await deleteOssObjects(oldKeys);
+}
+
+async function updatePhotoWithSchemaFallback(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  payload: Record<string, unknown>,
+  photoId: string,
   albumId: string,
-  coverUrl: string,
   userId: string,
   isAdmin: boolean
 ) {
-  let albumUpdate = supabase.from("albums").update({ cover_path: coverUrl }).eq("id", albumId).is("cover_path", null);
-  if (!isAdmin) albumUpdate = albumUpdate.eq("user_id", userId);
-  await albumUpdate;
+  let nextPayload = payload;
+
+  for (let attempt = 0; attempt < 16; attempt += 1) {
+    let update = supabase.from("photos").update(nextPayload).eq("id", photoId).eq("album_id", albumId);
+    if (!isAdmin) update = update.eq("user_id", userId);
+
+    const { error } = await update;
+    if (!error) return;
+
+    const missingColumn = extractMissingPhotoColumn(error.message);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      throw new Error(error.message);
+    }
+
+    const fallbackPayload = { ...nextPayload };
+    delete fallbackPayload[missingColumn];
+    nextPayload = fallbackPayload;
+  }
+
+  throw new Error("数据库 photos 表缺少过多字段，请重新执行 supabase/schema.sql。");
+}
+
+async function deletePhotosFromAlbum(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  photoIds: string[],
+  userId: string,
+  isAdmin: boolean
+) {
+  const uniqueIds = Array.from(new Set(photoIds));
+  if (!uniqueIds.length) return;
+
+  let query = supabase.from("photos").select("id,original_path").eq("album_id", albumId).in("id", uniqueIds);
+  if (!isAdmin) query = query.eq("user_id", userId);
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data?.length) {
+    return;
+  }
+
+  let deleteQuery = supabase.from("photos").delete().eq("album_id", albumId).in("id", data.map((photo: any) => photo.id));
+  if (!isAdmin) deleteQuery = deleteQuery.eq("user_id", userId);
+
+  const { error: deleteError } = await deleteQuery;
+  if (deleteError) {
+    throw new Error(deleteError.message);
+  }
+
+  await deleteOssObjects(data.map((photo: any) => photo.original_path));
+}
+
+async function setAlbumCoverByPhotoId(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  photoId: string | null | undefined,
+  userId: string,
+  isAdmin: boolean
+) {
+  if (!photoId) {
+    await ensureAlbumHasCover(supabase, albumId, userId, isAdmin);
+    return;
+  }
+
+  let query = supabase
+    .from("photos")
+    .select("id,original_url,original_path")
+    .eq("id", photoId)
+    .eq("album_id", albumId);
+
+  if (!isAdmin) {
+    query = query.eq("user_id", userId);
+  }
+
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) {
+    throw new Error("封面照片不属于这个摄影组。");
+  }
+
+  await updateAlbumCover(supabase, albumId, photoUrl(data), data.id, userId, isAdmin);
+}
+
+async function ensureAlbumHasCover(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  userId: string,
+  isAdmin: boolean
+) {
+  const currentCoverId = await readAlbumCoverPhotoId(supabase, albumId);
+  if (currentCoverId) {
+    let currentQuery = supabase
+      .from("photos")
+      .select("id,original_url,original_path")
+      .eq("id", currentCoverId)
+      .eq("album_id", albumId);
+    if (!isAdmin) currentQuery = currentQuery.eq("user_id", userId);
+
+    const { data: current } = await currentQuery.maybeSingle();
+    if (current) {
+      await updateAlbumCover(supabase, albumId, photoUrl(current), current.id, userId, isAdmin);
+      return;
+    }
+  }
+
+  let firstQuery = supabase
+    .from("photos")
+    .select("id,original_url,original_path")
+    .eq("album_id", albumId)
+    .order("created_at", { ascending: true })
+    .limit(1);
+  if (!isAdmin) firstQuery = firstQuery.eq("user_id", userId);
+
+  const { data: remainingPhotos } = await firstQuery;
+  const firstPhoto = remainingPhotos?.[0];
+  await updateAlbumCover(supabase, albumId, firstPhoto ? photoUrl(firstPhoto) : null, firstPhoto?.id ?? null, userId, isAdmin);
+}
+
+async function readAlbumCoverPhotoId(supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>, albumId: string) {
+  const { data, error } = await supabase.from("albums").select("cover_photo_id").eq("id", albumId).maybeSingle();
+  if (error || !data) {
+    return null;
+  }
+
+  return typeof data.cover_photo_id === "string" ? data.cover_photo_id : null;
+}
+
+async function updateAlbumCover(
+  supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  albumId: string,
+  coverPath: string | null,
+  coverPhotoId: string | null,
+  userId: string,
+  isAdmin: boolean
+) {
+  let payload: Record<string, unknown> = {
+    cover_path: coverPath,
+    cover_photo_id: coverPhotoId
+  };
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let update = supabase.from("albums").update(payload).eq("id", albumId);
+    if (!isAdmin) update = update.eq("user_id", userId);
+    const { error } = await update;
+    if (!error) return;
+
+    const missingColumn = extractMissingAlbumColumn(error.message);
+    if (!missingColumn || !(missingColumn in payload)) {
+      throw new Error(error.message);
+    }
+
+    const nextPayload = { ...payload };
+    delete nextPayload[missingColumn];
+    payload = nextPayload;
+  }
+
+  throw new Error("数据库 albums 表缺少封面字段，请重新执行 supabase/schema.sql。");
+}
+
+function createPhotoFileUpdate(
+  file: z.infer<typeof uploadedFileSchema>,
+  updates: AlbumUpdate,
+  userId: string,
+  albumId: string
+) {
+  const originalKey = safeOssObjectKey(file.originalKey);
+  if (!originalKey || !originalKey.startsWith(`originals/${userId}/`) || !originalKey.includes(`/${albumId}/`)) {
+    throw new Error(`${file.name} 的 OSS 对象路径无效。`);
+  }
+
+  const originalUrl = publicObjectUrl(originalKey);
+
+  return {
+    title: filenameTitle(file.name),
+    original_path: originalKey,
+    preview_path: originalKey,
+    thumbnail_path: originalKey,
+    image_path: originalKey,
+    original_url: originalUrl,
+    preview_url: originalUrl,
+    thumbnail_url: originalUrl,
+    file_size: file.size,
+    mime_type: file.mimeType,
+    uploaded_at: new Date().toISOString(),
+    width: file.width,
+    height: file.height,
+    camera: updates.camera,
+    camera_type: inferCameraType(updates.camera),
+    lens: updates.lens,
+    film: updates.film,
+    film_brand: updates.film ? updates.film.split(" ")[0] : undefined,
+    iso: updates.iso,
+    taken_at: updates.taken_at,
+    location: updates.location,
+    notes: updates.notes,
+    visibility: "public"
+  };
+}
+
+function photoUrl(photo: { original_url?: string | null; original_path?: string | null }) {
+  return photo.original_url || (photo.original_path ? publicObjectUrl(photo.original_path) : null);
 }
 
 function parseAlbumUpdate(value: z.infer<typeof patchSchema>, fallbackTitle = ""): AlbumUpdate {
@@ -417,5 +699,17 @@ function stripUndefinedValues(record: Record<string, unknown>) {
 }
 
 function extractMissingPhotoColumn(message: string) {
-  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
+  return (
+    message.match(/'([^']+)' column of 'photos'/i)?.[1] ??
+    message.match(/column "([^"]+)" of relation "photos"/i)?.[1] ??
+    null
+  );
+}
+
+function extractMissingAlbumColumn(message: string) {
+  return (
+    message.match(/'([^']+)' column of 'albums'/i)?.[1] ??
+    message.match(/column "([^"]+)" of relation "albums"/i)?.[1] ??
+    null
+  );
 }

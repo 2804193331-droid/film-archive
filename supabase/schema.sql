@@ -46,6 +46,7 @@ create table if not exists public.albums (
   title text not null,
   description text not null default '',
   cover_path text,
+  cover_photo_id uuid,
   location text,
   date text,
   visibility text not null default 'public' check (visibility in ('public', 'private', 'unlisted')),
@@ -125,6 +126,7 @@ alter table public.albums add column if not exists user_id uuid references publi
 alter table public.albums add column if not exists title text not null default 'Film Archive';
 alter table public.albums add column if not exists description text not null default '';
 alter table public.albums add column if not exists cover_path text;
+alter table public.albums add column if not exists cover_photo_id uuid;
 alter table public.albums add column if not exists location text;
 alter table public.albums add column if not exists date text;
 alter table public.albums add column if not exists visibility text not null default 'public';
@@ -175,7 +177,24 @@ alter table public.photos add column if not exists visibility text not null defa
 alter table public.photos add column if not exists created_at timestamptz not null default now();
 alter table public.photos add column if not exists updated_at timestamptz not null default now();
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'albums_cover_photo_id_fkey'
+      and conrelid = 'public.albums'::regclass
+  ) then
+    alter table public.albums
+      add constraint albums_cover_photo_id_fkey
+      foreign key (cover_photo_id)
+      references public.photos(id)
+      on delete set null;
+  end if;
+end $$;
+
 create index if not exists albums_user_idx on public.albums (user_id, created_at desc);
+create index if not exists albums_cover_photo_idx on public.albums (cover_photo_id);
 create index if not exists albums_public_created_idx on public.albums (visibility, created_at desc);
 create index if not exists photos_public_created_idx on public.photos (visibility, created_at desc);
 create index if not exists photos_user_idx on public.photos (user_id, created_at desc);

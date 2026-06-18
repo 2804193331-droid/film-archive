@@ -1,14 +1,26 @@
 "use client";
 
-import { AlertCircle, CheckCircle2, FolderUp, ImageIcon, RotateCcw, UploadCloud, X } from "lucide-react";
+import {
+  AlertCircle,
+  CheckCircle2,
+  FolderPlus,
+  FolderUp,
+  ImageIcon,
+  RotateCcw,
+  Star,
+  Trash2,
+  UploadCloud,
+  X
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cameras, films, lenses } from "@/lib/catalog";
 import styles from "./upload-dropzone.module.css";
 
 type UploadState = "idle" | "uploading" | "done" | "error";
 
-type PreviewItem = {
+type SelectedPhoto = {
   id: string;
+  file: File;
   name: string;
   size: number;
   url: string;
@@ -68,8 +80,8 @@ const emptyMetadata: UploadMetadata = {
 };
 
 export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<PreviewItem[]>([]);
+  const [selectedPhotos, setSelectedPhotos] = useState<SelectedPhoto[]>([]);
+  const [coverPhotoId, setCoverPhotoId] = useState<string | null>(null);
   const [state, setState] = useState<UploadState>("idle");
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState("");
@@ -80,11 +92,22 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   const [metadata, setMetadata] = useState<UploadMetadata>(emptyMetadata);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const selectedPhotosRef = useRef<SelectedPhoto[]>([]);
   const selectionIdRef = useRef(0);
 
   useEffect(() => {
     folderInputRef.current?.setAttribute("webkitdirectory", "");
     folderInputRef.current?.setAttribute("directory", "");
+  }, []);
+
+  useEffect(() => {
+    selectedPhotosRef.current = selectedPhotos;
+  }, [selectedPhotos]);
+
+  useEffect(() => {
+    return () => {
+      selectedPhotosRef.current.forEach((photo) => URL.revokeObjectURL(photo.url));
+    };
   }, []);
 
   useEffect(() => {
@@ -103,8 +126,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
     fetch("/api/storage/status", { cache: "no-store" })
       .then((response) => response.json())
       .then((body) => {
-        if (!mounted) return;
-        setStorageStatus(body);
+        if (mounted) setStorageStatus(body);
       })
       .catch(() => {
         if (mounted) {
@@ -121,13 +143,8 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
     };
   }, []);
 
-  useEffect(() => {
-    return () => {
-      previews.forEach((preview) => URL.revokeObjectURL(preview.url));
-    };
-  }, [previews]);
-
-  const totalSize = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files]);
+  const totalSize = useMemo(() => selectedPhotos.reduce((sum, photo) => sum + photo.size, 0), [selectedPhotos]);
+  const coverPhoto = selectedPhotos.find((photo) => photo.id === coverPhotoId) ?? selectedPhotos[0];
   const cameraOptions = useMemo(
     () => mergeOptions(cameras.map((camera) => `${camera.brand} ${camera.model}`), customOptions.cameras),
     [customOptions.cameras]
@@ -144,64 +161,72 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   const storageUnavailable = storageStatus?.configured === false || storageStatus?.readOnly === true;
   const pickerDisabled = state === "uploading";
   const uploadDisabled = readOnly || !signedIn || storageChecking || storageUnavailable || state === "uploading";
-  const hasFiles = files.length > 0;
+  const hasFiles = selectedPhotos.length > 0;
   const storageNotice = storageUnavailable
     ? "阿里云 OSS 还没有配置好。请先添加 ALI_OSS_ACCESS_KEY_ID 和 ALI_OSS_ACCESS_KEY_SECRET，并检查 Bucket CORS。"
     : "";
 
   function addFiles(fileList: FileList | null) {
-    if (!fileList) return;
+    if (!fileList || pickerDisabled) return;
 
+    const wasEmpty = selectedPhotos.length === 0;
     const nextFiles = Array.from(fileList).filter(isSupportedImage);
     const selectionId = selectionIdRef.current + 1;
     selectionIdRef.current = selectionId;
-
-    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
-    setMetadata(emptyMetadata);
-    setMetadataStatus("");
     setProgress(0);
     setState("idle");
 
+    if (wasEmpty) {
+      setMetadata(emptyMetadata);
+      setMetadataStatus("");
+    }
+
     if (!nextFiles.length) {
-      setFiles([]);
-      setPreviews([]);
       setMessage(`请选择 ${supportedExtensions.join("、")} 格式的照片。`);
       return;
     }
 
-    if (nextFiles.length > maxFiles) {
-      setFiles([]);
-      setPreviews([]);
+    if (selectedPhotos.length + nextFiles.length > maxFiles) {
       setMessage(`一次最多上传 ${maxFiles} 张照片。`);
       return;
     }
 
     const oversized = nextFiles.find((file) => file.size > maxFileSize);
     if (oversized) {
-      setFiles([]);
-      setPreviews([]);
       setMessage(`${oversized.name} 超过 100MB。`);
       return;
     }
 
-    setFiles(nextFiles);
-    setPreviews(
-      nextFiles.slice(0, 24).map((file, index) => ({
-        id: `${file.name}-${file.lastModified}-${index}`,
-        name: file.name,
-        size: file.size,
-        url: URL.createObjectURL(file)
-      }))
-    );
+    const nextPhotos = nextFiles.map((file) => ({
+      id: makeClientId(file),
+      file,
+      name: file.name,
+      size: file.size,
+      url: URL.createObjectURL(file)
+    }));
+
+    setSelectedPhotos((current) => [...current, ...nextPhotos]);
+    setCoverPhotoId((current) => current ?? nextPhotos[0]?.id ?? null);
     setMessage("");
 
-    if (nextFiles.length === 1) {
+    const finalCount = selectedPhotos.length + nextPhotos.length;
+    if (wasEmpty && finalCount === 1) {
       setMetadataStatus("正在读取 EXIF...");
-      void readMetadataFromFile(nextFiles[0], selectionId);
+      void readMetadataFromFile(nextPhotos[0].file, selectionId);
       return;
     }
 
     setMetadataStatus("系列上传使用统一参数。");
+  }
+
+  function removePhoto(photoId: string) {
+    const nextPhotos = selectedPhotos.filter((photo) => photo.id !== photoId);
+    const removed = selectedPhotos.find((photo) => photo.id === photoId);
+    if (removed) URL.revokeObjectURL(removed.url);
+
+    setSelectedPhotos(nextPhotos);
+    setCoverPhotoId((current) => (current === photoId ? nextPhotos[0]?.id ?? null : current));
+    setMessage("");
   }
 
   function clearFiles() {
@@ -215,15 +240,15 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
   }
 
   function resetSelectedFiles() {
-    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
-    setFiles([]);
-    setPreviews([]);
+    selectedPhotos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    setSelectedPhotos([]);
+    setCoverPhotoId(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
     if (folderInputRef.current) folderInputRef.current.value = "";
   }
 
   async function upload() {
-    if (!files.length) {
+    if (!selectedPhotos.length) {
       setMessage("请先选择照片。");
       return;
     }
@@ -248,10 +273,10 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          files: files.map((file) => ({
-            name: file.name,
-            size: file.size,
-            type: file.type || mimeTypeFromName(file.name)
+          files: selectedPhotos.map((photo) => ({
+            name: photo.file.name,
+            size: photo.file.size,
+            type: photo.file.type || mimeTypeFromName(photo.file.name)
           }))
         })
       });
@@ -266,32 +291,37 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
       const totalBytes = Math.max(1, totalSize);
 
       setMessage("正在上传到阿里云 OSS...");
-      const completed = await mapWithConcurrency(files, 3, async (file, index) => {
+      const completed = await mapWithConcurrency(selectedPhotos, 3, async (photo, index) => {
         const signed = signedUploads[index];
-        await putFileToOss(file, signed, (loaded) => {
+        await putFileToOss(photo.file, signed, (loaded) => {
           loadedByIndex.set(index, loaded);
           const uploadedBytes = Array.from(loadedByIndex.values()).reduce((sum, value) => sum + value, 0);
           setProgress(Math.min(95, Math.round((uploadedBytes / totalBytes) * 95)));
         });
-        loadedByIndex.set(index, file.size);
-        const dimensions = await readImageDimensions(file);
+        loadedByIndex.set(index, photo.file.size);
+        const dimensions = await readImageDimensions(photo.file);
         return {
           id: signed.id,
-          name: file.name,
+          name: photo.file.name,
           originalKey: signed.originalKey,
-          size: file.size,
+          size: photo.file.size,
           mimeType: signed.mimeType,
           width: dimensions?.width,
           height: dimensions?.height
         };
       });
 
+      const coverFileIndex = Math.max(
+        0,
+        selectedPhotos.findIndex((photo) => photo.id === coverPhoto?.id)
+      );
+
       setProgress(97);
       setMessage("正在写入作品数据库...");
       const completeResponse = await fetch("/api/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ albumId, metadata, files: completed })
+        body: JSON.stringify({ albumId, coverFileIndex, metadata, files: completed })
       });
       const completeBody = await completeResponse.json().catch(() => ({}));
       if (!completeResponse.ok) {
@@ -335,21 +365,42 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             </div>
 
             <div className={styles.previewHero}>
-              <img src={previews[0]?.url} alt={previews[0]?.name ?? "照片预览"} />
+              <img src={coverPhoto?.url} alt={coverPhoto?.name ?? "照片预览"} />
             </div>
 
-            {previews.length > 1 ? (
-              <div className={styles.previewGrid} aria-label="已选择照片预览">
-                {previews.slice(0, 12).map((preview) => (
-                  <img key={preview.id} src={preview.url} alt={preview.name} title={preview.name} />
-                ))}
-                {previews.length > 12 ? <span>+{previews.length - 12}</span> : null}
-              </div>
-            ) : null}
-
             <div className={styles.previewInfo}>
-              <strong>{files.length === 1 ? previews[0]?.name : `${files.length} 张照片`}</strong>
+              <strong>{selectedPhotos.length === 1 ? coverPhoto?.name : `${selectedPhotos.length} 张照片`}</strong>
               <span>{formatBytes(totalSize)}</span>
+            </div>
+
+            <div className={styles.previewGrid} aria-label="已选择照片预览">
+              {selectedPhotos.map((photo, index) => {
+                const isCover = photo.id === coverPhoto?.id;
+                return (
+                  <div className={`${styles.previewTile} ${isCover ? styles.previewTileActive : ""}`} key={photo.id}>
+                    <img src={photo.url} alt={photo.name} title={photo.name} />
+                    <div className={styles.previewTileMeta}>
+                      <span>{index + 1}</span>
+                      {isCover ? <strong>封面</strong> : null}
+                    </div>
+                    <div className={styles.previewTileActions}>
+                      <button
+                        className="ghost-button"
+                        type="button"
+                        disabled={pickerDisabled || isCover}
+                        onClick={() => setCoverPhotoId(photo.id)}
+                      >
+                        <Star size={14} aria-hidden />
+                        设为封面
+                      </button>
+                      <button className="icon-button" type="button" disabled={pickerDisabled} onClick={() => removePhoto(photo.id)} title="删除照片">
+                        <Trash2 size={15} aria-hidden />
+                        <span className="sr-only">删除照片</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {metadataStatus ? <div className={styles.detectedMeta}>{metadataStatus}</div> : null}
@@ -357,11 +408,11 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             <div className={styles.dropActions}>
               <button className="ghost-button" type="button" disabled={pickerDisabled} onClick={() => fileInputRef.current?.click()}>
                 <UploadCloud size={17} aria-hidden />
-                更换照片
+                继续添加照片
               </button>
               <button className="ghost-button" type="button" disabled={pickerDisabled} onClick={() => folderInputRef.current?.click()}>
-                <FolderUp size={17} aria-hidden />
-                更换文件夹
+                <FolderPlus size={17} aria-hidden />
+                继续添加文件夹
               </button>
             </div>
           </div>
@@ -501,7 +552,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
         </div>
 
         <div className={styles.summary}>
-          <span>{files.length} 张</span>
+          <span>{selectedPhotos.length} 张</span>
           <span>{formatBytes(totalSize)}</span>
         </div>
         {state === "uploading" || state === "done" ? (
@@ -512,7 +563,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
         {message ? <p className={styles.message}>{message}</p> : null}
 
         <div className={styles.actions}>
-          <button className="button" type="button" disabled={uploadDisabled || !files.length} onClick={upload}>
+          <button className="button" type="button" disabled={uploadDisabled || !selectedPhotos.length} onClick={upload}>
             上传
           </button>
           {state === "error" ? (
@@ -774,4 +825,8 @@ function formatBytes(bytes: number) {
     index += 1;
   }
   return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[index]}`;
+}
+
+function makeClientId(file: File) {
+  return `${window.crypto?.randomUUID?.() ?? `${file.name}-${file.lastModified}-${Math.random()}`}`;
 }

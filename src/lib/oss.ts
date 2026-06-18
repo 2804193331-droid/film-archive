@@ -112,8 +112,8 @@ export function createSignedUploads({
       id,
       originalKey,
       originalUrl,
-      previewUrl: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
-      thumbnailUrl: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
+      previewUrl: originalUrl,
+      thumbnailUrl: originalUrl,
       uploadUrl: client.signatureUrl(originalKey, {
         expires: 15 * 60,
         method: "PUT",

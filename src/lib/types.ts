@@ -48,6 +48,7 @@ export type Album = {
   title: string;
   description?: string;
   coverUrl: string;
+  coverPhotoId?: string;
   coverWidth: number;
   coverHeight: number;
   photoCount: number;

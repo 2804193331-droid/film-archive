@@ -1,9 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ImagePlus, RotateCcw, Star, Trash2, UploadCloud, X } from "lucide-react";
 import { cameras, films, lenses } from "@/lib/catalog";
-import type { Album } from "@/lib/types";
+import type { Album, Photo } from "@/lib/types";
 import styles from "./edit-album-form.module.css";
 
 type FormState = {
@@ -17,10 +18,16 @@ type FormState = {
   notes: string;
 };
 
-type PreviewItem = {
+type LocalPhoto = {
   id: string;
+  file: File;
   url: string;
   name: string;
+  size: number;
+};
+
+type ReplacementPhoto = LocalPhoto & {
+  photoId: string;
 };
 
 type SignedUpload = {
@@ -34,7 +41,7 @@ const supportedExtensions = [".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"];
 const maxFiles = 100;
 const maxFileSize = 100 * 1024 * 1024;
 
-export function EditAlbumForm({ album }: { album: Album }) {
+export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[] }) {
   const router = useRouter();
   const [form, setForm] = useState<FormState>({
     title: album.title,
@@ -46,27 +53,46 @@ export function EditAlbumForm({ album }: { album: Album }) {
     location: album.location ?? "",
     notes: album.description ?? ""
   });
-  const [files, setFiles] = useState<File[]>([]);
-  const [previews, setPreviews] = useState<PreviewItem[]>([]);
+  const [addedPhotos, setAddedPhotos] = useState<LocalPhoto[]>([]);
+  const [replacementPhotos, setReplacementPhotos] = useState<Record<string, ReplacementPhoto>>({});
+  const [deletedPhotoIds, setDeletedPhotoIds] = useState<Set<string>>(new Set());
+  const [coverSelection, setCoverSelection] = useState<string | null>(album.coverPhotoId ?? photos[0]?.id ?? null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const addedPhotosRef = useRef<LocalPhoto[]>([]);
+  const replacementPhotosRef = useRef<Record<string, ReplacementPhoto>>({});
 
   const cameraOptions = useMemo(() => cameras.map((camera) => `${camera.brand} ${camera.model}`), []);
   const lensOptions = useMemo(() => lenses.map((lens) => `${lens.brand} ${lens.model}`), []);
   const filmOptions = useMemo(() => films.map((film) => `${film.brand} ${film.name}`), []);
+  const visiblePhotos = photos.filter((photo) => !deletedPhotoIds.has(photo.id));
+  const uploadCount = addedPhotos.length + Object.keys(replacementPhotos).length;
+
+  useEffect(() => {
+    addedPhotosRef.current = addedPhotos;
+  }, [addedPhotos]);
+
+  useEffect(() => {
+    replacementPhotosRef.current = replacementPhotos;
+  }, [replacementPhotos]);
 
   useEffect(() => {
     return () => {
-      previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+      addedPhotosRef.current.forEach((photo) => URL.revokeObjectURL(photo.url));
+      Object.values(replacementPhotosRef.current).forEach((photo) => URL.revokeObjectURL(photo.url));
     };
-  }, [previews]);
+  }, []);
 
   function addFiles(fileList: FileList | null) {
     if (!fileList) return;
     const nextFiles = Array.from(fileList).filter(isSupportedImage);
-    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
 
-    if (nextFiles.length > maxFiles) {
+    if (!nextFiles.length) {
+      setMessage(`请选择 ${supportedExtensions.join("、")} 格式的照片。`);
+      return;
+    }
+
+    if (addedPhotos.length + nextFiles.length > maxFiles) {
       setMessage(`一次最多添加 ${maxFiles} 张照片。`);
       return;
     }
@@ -77,21 +103,91 @@ export function EditAlbumForm({ album }: { album: Album }) {
       return;
     }
 
-    setFiles(nextFiles);
-    setPreviews(
-      nextFiles.slice(0, 12).map((file, index) => ({
-        id: `${file.name}-${file.lastModified}-${index}`,
-        name: file.name,
-        url: URL.createObjectURL(file)
-      }))
-    );
+    const nextPhotos = nextFiles.map((file) => ({
+      id: makeClientId(file),
+      file,
+      name: file.name,
+      size: file.size,
+      url: URL.createObjectURL(file)
+    }));
+
+    setAddedPhotos((current) => [...current, ...nextPhotos]);
+    setCoverSelection((current) => current ?? nextPhotos[0]?.id ?? null);
     setMessage("");
   }
 
-  function clearFiles() {
-    previews.forEach((preview) => URL.revokeObjectURL(preview.url));
-    setFiles([]);
-    setPreviews([]);
+  function removeAddedPhoto(photoId: string) {
+    const removed = addedPhotos.find((photo) => photo.id === photoId);
+    if (removed) URL.revokeObjectURL(removed.url);
+
+    const nextAddedPhotos = addedPhotos.filter((photo) => photo.id !== photoId);
+    setAddedPhotos(nextAddedPhotos);
+    moveCoverIfNeeded(photoId, visiblePhotos, nextAddedPhotos);
+  }
+
+  function markDeletePhoto(photoId: string) {
+    const nextDeletedIds = new Set(deletedPhotoIds);
+    nextDeletedIds.add(photoId);
+    const nextVisiblePhotos = photos.filter((photo) => !nextDeletedIds.has(photo.id));
+    setDeletedPhotoIds(nextDeletedIds);
+    removeReplacement(photoId);
+    moveCoverIfNeeded(photoId, nextVisiblePhotos, addedPhotos);
+  }
+
+  function restoreDeletedPhoto(photoId: string) {
+    const nextDeletedIds = new Set(deletedPhotoIds);
+    nextDeletedIds.delete(photoId);
+    setDeletedPhotoIds(nextDeletedIds);
+    setCoverSelection((current) => current ?? photoId);
+  }
+
+  function moveCoverIfNeeded(removedId: string, nextVisiblePhotos: Photo[], nextAddedPhotos: LocalPhoto[]) {
+    setCoverSelection((current) => {
+      if (current !== removedId) return current;
+      return nextVisiblePhotos[0]?.id ?? nextAddedPhotos[0]?.id ?? null;
+    });
+  }
+
+  function setReplacement(photoId: string, fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+
+    if (!isSupportedImage(file)) {
+      setMessage(`请选择 ${supportedExtensions.join("、")} 格式的照片。`);
+      return;
+    }
+
+    if (file.size > maxFileSize) {
+      setMessage(`${file.name} 超过 100MB。`);
+      return;
+    }
+
+    const previous = replacementPhotos[photoId];
+    if (previous) URL.revokeObjectURL(previous.url);
+
+    setReplacementPhotos((current) => ({
+      ...current,
+      [photoId]: {
+        id: makeClientId(file),
+        photoId,
+        file,
+        name: file.name,
+        size: file.size,
+        url: URL.createObjectURL(file)
+      }
+    }));
+    setMessage("");
+  }
+
+  function removeReplacement(photoId: string) {
+    const existing = replacementPhotos[photoId];
+    if (existing) URL.revokeObjectURL(existing.url);
+
+    setReplacementPhotos((current) => {
+      const next = { ...current };
+      delete next[photoId];
+      return next;
+    });
   }
 
   async function save() {
@@ -99,27 +195,26 @@ export function EditAlbumForm({ album }: { album: Album }) {
     setMessage("");
 
     try {
-      let completed: Array<{
-        id: string;
-        name: string;
-        originalKey: string;
-        size: number;
-        mimeType: string;
-        width?: number;
-        height?: number;
-      }> = [];
+      const replacementItems = Object.values(replacementPhotos);
+      const uploadItems = [
+        ...addedPhotos.map((photo) => ({ kind: "add" as const, photo })),
+        ...replacementItems.map((photo) => ({ kind: "replace" as const, photo }))
+      ];
 
-      if (files.length) {
-        setMessage("正在上传新增照片到 OSS...");
+      let addedCompleted: Array<CompletedUpload & { localId: string }> = [];
+      let replacementCompleted: Array<{ photoId: string; file: CompletedUpload }> = [];
+
+      if (uploadItems.length) {
+        setMessage("正在上传照片到 OSS...");
         const signResponse = await fetch("/api/upload/sign", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             albumId: album.id,
-            files: files.map((file) => ({
-              name: file.name,
-              size: file.size,
-              type: file.type || mimeTypeFromName(file.name)
+            files: uploadItems.map((item) => ({
+              name: item.photo.file.name,
+              size: item.photo.file.size,
+              type: item.photo.file.type || mimeTypeFromName(item.photo.file.name)
             }))
           })
         });
@@ -129,27 +224,47 @@ export function EditAlbumForm({ album }: { album: Album }) {
         }
 
         const signedUploads = signBody.uploads as SignedUpload[];
-        completed = await mapWithConcurrency(files, 3, async (file, index) => {
+        const completed = await mapWithConcurrency(uploadItems, 3, async (item, index) => {
           const signed = signedUploads[index];
-          await putFileToOss(file, signed);
-          const dimensions = await readImageDimensions(file);
+          await putFileToOss(item.photo.file, signed);
+          const dimensions = await readImageDimensions(item.photo.file);
           return {
-            id: signed.id,
-            name: file.name,
-            originalKey: signed.originalKey,
-            size: file.size,
-            mimeType: signed.mimeType,
-            width: dimensions?.width,
-            height: dimensions?.height
+            kind: item.kind,
+            localId: item.photo.id,
+            photoId: "photoId" in item.photo ? item.photo.photoId : undefined,
+            file: {
+              id: signed.id,
+              name: item.photo.file.name,
+              originalKey: signed.originalKey,
+              size: item.photo.file.size,
+              mimeType: signed.mimeType,
+              width: dimensions?.width,
+              height: dimensions?.height
+            }
           };
         });
+
+        addedCompleted = completed
+          .filter((item) => item.kind === "add")
+          .map((item) => ({ ...item.file, localId: item.localId }));
+        replacementCompleted = completed
+          .filter((item) => item.kind === "replace" && item.photoId)
+          .map((item) => ({ photoId: item.photoId!, file: item.file }));
       }
+
+      const coverPhotoId = resolveCoverPhotoId(coverSelection, addedCompleted);
 
       setMessage("正在保存修改...");
       const response = await fetch(`/api/albums/${album.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, files: completed })
+        body: JSON.stringify({
+          ...form,
+          coverPhotoId,
+          deletePhotoIds: Array.from(deletedPhotoIds),
+          files: addedCompleted.map(({ localId, ...file }) => file),
+          replacePhotos: replacementCompleted
+        })
       });
       const body = await response.json().catch(() => ({}));
 
@@ -157,7 +272,7 @@ export function EditAlbumForm({ album }: { album: Album }) {
         throw new Error(body.error ?? "保存失败，请稍后重试。");
       }
 
-      clearFiles();
+      clearLocalUploads();
       router.push(`/album/${album.id}`);
       router.refresh();
     } catch (error) {
@@ -165,6 +280,13 @@ export function EditAlbumForm({ album }: { album: Album }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  function clearLocalUploads() {
+    addedPhotos.forEach((photo) => URL.revokeObjectURL(photo.url));
+    Object.values(replacementPhotos).forEach((photo) => URL.revokeObjectURL(photo.url));
+    setAddedPhotos([]);
+    setReplacementPhotos({});
   }
 
   return (
@@ -214,31 +336,109 @@ export function EditAlbumForm({ album }: { album: Album }) {
         <textarea className="textarea" value={form.notes} onChange={(event) => setForm({ ...form, notes: event.target.value })} />
       </label>
 
+      <section className={styles.full}>
+        <div className={styles.addPhotosHeader}>
+          <div>
+            <strong>当前照片</strong>
+            <span>封面只作用于当前摄影组。</span>
+          </div>
+        </div>
+
+        {visiblePhotos.length || addedPhotos.length ? (
+          <div className={styles.manageGrid}>
+            {visiblePhotos.map((photo) => {
+              const replacement = replacementPhotos[photo.id];
+              const isCover = coverSelection === photo.id;
+              return (
+                <article className={`${styles.manageTile} ${isCover ? styles.manageTileActive : ""}`} key={photo.id}>
+                  <img src={replacement?.url ?? photo.originalUrl} alt={photo.title} />
+                  <div className={styles.manageTileMeta}>
+                    {isCover ? <strong>封面</strong> : <span>照片</span>}
+                    {replacement ? <span>已替换</span> : null}
+                  </div>
+                  <div className={styles.manageTileActions}>
+                    <button className="ghost-button" type="button" disabled={busy || isCover} onClick={() => setCoverSelection(photo.id)}>
+                      <Star size={14} aria-hidden />
+                      设为封面
+                    </button>
+                    <label className={styles.replaceButton}>
+                      <UploadCloud size={14} aria-hidden />
+                      替换
+                      <input type="file" accept="image/jpeg,image/png,image/webp,image/tiff" disabled={busy} onChange={(event) => setReplacement(photo.id, event.target.files)} />
+                    </label>
+                    {replacement ? (
+                      <button className="icon-button" type="button" disabled={busy} onClick={() => removeReplacement(photo.id)} title="取消替换">
+                        <RotateCcw size={15} aria-hidden />
+                        <span className="sr-only">取消替换</span>
+                      </button>
+                    ) : null}
+                    <button className="icon-button" type="button" disabled={busy} onClick={() => markDeletePhoto(photo.id)} title="删除照片">
+                      <Trash2 size={15} aria-hidden />
+                      <span className="sr-only">删除照片</span>
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+
+            {addedPhotos.map((photo) => {
+              const isCover = coverSelection === photo.id;
+              return (
+                <article className={`${styles.manageTile} ${isCover ? styles.manageTileActive : ""}`} key={photo.id}>
+                  <img src={photo.url} alt={photo.name} />
+                  <div className={styles.manageTileMeta}>
+                    {isCover ? <strong>封面</strong> : <span>新增</span>}
+                  </div>
+                  <div className={styles.manageTileActions}>
+                    <button className="ghost-button" type="button" disabled={busy || isCover} onClick={() => setCoverSelection(photo.id)}>
+                      <Star size={14} aria-hidden />
+                      设为封面
+                    </button>
+                    <button className="icon-button" type="button" disabled={busy} onClick={() => removeAddedPhoto(photo.id)} title="移除照片">
+                      <X size={15} aria-hidden />
+                      <span className="sr-only">移除照片</span>
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <p className={styles.emptyPhotos}>这个摄影组里暂时没有照片。</p>
+        )}
+      </section>
+
+      {deletedPhotoIds.size ? (
+        <section className={styles.full}>
+          <div className={styles.deletedList}>
+            {Array.from(deletedPhotoIds).map((photoId) => {
+              const photo = photos.find((item) => item.id === photoId);
+              return (
+                <button className="ghost-button" type="button" disabled={busy} key={photoId} onClick={() => restoreDeletedPhoto(photoId)}>
+                  <RotateCcw size={15} aria-hidden />
+                  恢复 {photo?.title ?? "照片"}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       <div className={styles.full}>
         <div className={styles.addPhotosHeader}>
           <div>
-            <strong>添加照片</strong>
-            <span>可在编辑时继续往这个摄影组里补照片。</span>
+            <strong>继续添加照片</strong>
+            <span>新照片会追加到当前摄影组，不会覆盖原照片。</span>
           </div>
-          {files.length ? (
-            <button className="ghost-button" type="button" disabled={busy} onClick={clearFiles}>
-              清空
-            </button>
-          ) : null}
         </div>
 
         <label className={styles.filePicker}>
           <input type="file" multiple accept="image/jpeg,image/png,image/webp,image/tiff" disabled={busy} onChange={(event) => addFiles(event.target.files)} />
-          <span>{files.length ? `已选择 ${files.length} 张照片` : "选择要添加的照片"}</span>
+          <span>
+            <ImagePlus size={16} aria-hidden />
+            {addedPhotos.length ? `已新增 ${addedPhotos.length} 张，继续选择` : "选择要添加的照片"}
+          </span>
         </label>
-
-        {previews.length ? (
-          <div className={styles.previewGrid}>
-            {previews.map((preview) => (
-              <img key={preview.id} src={preview.url} alt={preview.name} title={preview.name} />
-            ))}
-          </div>
-        ) : null}
       </div>
 
       <datalist id="edit-camera-list">
@@ -261,7 +461,7 @@ export function EditAlbumForm({ album }: { album: Album }) {
 
       <div className={styles.actions}>
         <button className="button" type="button" disabled={busy} onClick={save}>
-          {busy ? "保存中" : "保存修改"}
+          {busy ? "保存中" : uploadCount ? `保存修改（${uploadCount} 张待上传）` : "保存修改"}
         </button>
         <button className="ghost-button" type="button" disabled={busy} onClick={() => router.back()}>
           取消
@@ -269,6 +469,24 @@ export function EditAlbumForm({ album }: { album: Album }) {
       </div>
     </section>
   );
+}
+
+type CompletedUpload = {
+  id: string;
+  name: string;
+  originalKey: string;
+  size: number;
+  mimeType: string;
+  width?: number;
+  height?: number;
+};
+
+function resolveCoverPhotoId(coverSelection: string | null, addedCompleted: Array<CompletedUpload & { localId: string }>) {
+  if (!coverSelection) {
+    return null;
+  }
+
+  return addedCompleted.find((photo) => photo.localId === coverSelection)?.id ?? coverSelection;
 }
 
 function putFileToOss(file: File, signed: SignedUpload) {
@@ -343,4 +561,8 @@ function mimeTypeFromName(name: string) {
   if (lowerName.endsWith(".webp")) return "image/webp";
   if (lowerName.endsWith(".tif") || lowerName.endsWith(".tiff")) return "image/tiff";
   return "image/jpeg";
+}
+
+function makeClientId(file: File) {
+  return `${window.crypto?.randomUUID?.() ?? `${file.name}-${file.lastModified}-${Math.random()}`}`;
 }

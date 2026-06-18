@@ -1,3 +1,19 @@
+const ossEndpoint = (process.env.ALI_OSS_ENDPOINT || "oss-cn-shanghai.aliyuncs.com")
+  .replace(/^https?:\/\//i, "")
+  .replace(/\/+$/, "");
+const ossBucket = process.env.ALI_OSS_BUCKET || "film-archive-images";
+const ossPublicHost = (() => {
+  const value = process.env.ALI_OSS_PUBLIC_BASE_URL;
+  if (!value) return null;
+
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+})();
+const ossHosts = Array.from(new Set([`${ossBucket}.${ossEndpoint}`, ossPublicHost].filter(Boolean)));
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async headers() {
@@ -34,7 +50,11 @@ const nextConfig = {
       {
         protocol: "https",
         hostname: "plus.unsplash.com"
-      }
+      },
+      ...ossHosts.map((hostname) => ({
+        protocol: "https",
+        hostname
+      }))
     ]
   }
 };

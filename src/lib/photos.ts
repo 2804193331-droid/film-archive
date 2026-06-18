@@ -1,5 +1,5 @@
 import { demoAlbums, demoPhotos, demoUsers } from "@/lib/demo-data";
-import { imageProcessUrl, publicObjectUrl } from "@/lib/oss";
+import { publicObjectUrl } from "@/lib/oss";
 import { createSupabaseAdminClient } from "@/lib/supabase";
 import type { Album, Photo, Uploader } from "@/lib/types";
 
@@ -124,24 +124,32 @@ async function getSupabaseAlbums() {
     return [];
   }
 
-  const { data, error } = await supabase
+  let response: { data: any[] | null; error: { message?: string } | null } = await supabase
     .from("albums")
-    .select("id,user_id,title,description,cover_path,location,date,visibility,created_at")
+    .select("id,user_id,title,description,cover_path,cover_photo_id,location,date,visibility,created_at")
     .order("created_at", { ascending: false })
     .limit(200);
 
-  if (error || !data?.length) {
+  if (response.error?.message?.includes("cover_photo_id")) {
+    response = await supabase
+      .from("albums")
+      .select("id,user_id,title,description,cover_path,location,date,visibility,created_at")
+      .order("created_at", { ascending: false })
+      .limit(200);
+  }
+
+  if (response.error || !response.data?.length) {
     return [];
   }
 
   const photos = await getSupabasePhotos();
   const photosByAlbum = groupPhotosByAlbum(photos);
-  const profilesById = await getProfilesById(data.map((item: any) => item.user_id).filter(Boolean));
+  const profilesById = await getProfilesById(response.data.map((item: any) => item.user_id).filter(Boolean));
 
-  return data.map((item): Album => {
+  return response.data.map((item): Album => {
     const owner = normalizeProfile(profilesById.get(item.user_id) ?? { id: item.user_id });
     const albumPhotos = photosByAlbum.get(item.id) ?? [];
-    const cover = albumPhotos[0];
+    const cover = albumPhotos.find((photo) => photo.id === item.cover_photo_id) ?? albumPhotos[0];
     const photoIds = albumPhotos.map((photo) => photo.id);
 
     return {
@@ -149,7 +157,8 @@ async function getSupabaseAlbums() {
       userId: item.user_id ?? owner.id,
       title: item.title,
       description: item.description ?? undefined,
-      coverUrl: resolveStoredUrl(item.cover_path, "thumbnail") ?? cover?.thumbnailUrl ?? demoAlbums[0].coverUrl,
+      coverUrl: cover?.originalUrl ?? resolveStoredUrl(item.cover_path, "original") ?? demoAlbums[0].coverUrl,
+      coverPhotoId: item.cover_photo_id ?? cover?.id,
       coverWidth: cover?.width ?? 1600,
       coverHeight: cover?.height ?? 1200,
       photoCount: photoIds.length || albumPhotos.length,
@@ -312,8 +321,8 @@ function mapSupabasePhoto(item: any): Photo {
   const uploader = normalizeProfile(item.profiles);
   const objectPath = item.original_path ?? item.image_path;
   const originalUrl = item.original_url ?? resolveStoredUrl(objectPath, "original") ?? demoPhotos[0].originalUrl;
-  const previewUrl = item.preview_url ?? resolveStoredUrl(item.preview_path ?? objectPath, "preview") ?? originalUrl;
-  const thumbnailUrl = item.thumbnail_url ?? resolveStoredUrl(item.thumbnail_path ?? objectPath, "thumbnail") ?? previewUrl;
+  const previewUrl = originalUrl;
+  const thumbnailUrl = originalUrl;
 
   return {
     id: item.id,
@@ -351,7 +360,7 @@ function mapSupabasePhoto(item: any): Photo {
   };
 }
 
-function resolveStoredUrl(value: unknown, kind: "original" | "preview" | "thumbnail") {
+function resolveStoredUrl(value: unknown, _kind: "original" | "preview" | "thumbnail") {
   if (typeof value !== "string" || !value.trim()) {
     return null;
   }
@@ -359,14 +368,6 @@ function resolveStoredUrl(value: unknown, kind: "original" | "preview" | "thumbn
   const text = value.trim();
   if (/^https?:\/\//i.test(text)) {
     return text;
-  }
-
-  if (kind === "preview") {
-    return imageProcessUrl(text, "image/resize,w_2400/quality,q_86/format,jpg");
-  }
-
-  if (kind === "thumbnail") {
-    return imageProcessUrl(text, "image/resize,w_760/quality,q_78/format,jpg");
   }
 
   return publicObjectUrl(text);

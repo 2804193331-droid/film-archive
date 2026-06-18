@@ -5,7 +5,6 @@ import { getAppSessionFromRequest } from "@/lib/app-session";
 import { cameras } from "@/lib/catalog";
 import {
   deleteOssObjects,
-  imageProcessUrl,
   MAX_UPLOAD_BYTES,
   MAX_UPLOAD_FILES,
   publicObjectUrl,
@@ -72,6 +71,7 @@ const completedFileSchema = z.object({
 
 const uploadCompleteSchema = z.object({
   albumId: z.string().uuid(),
+  coverFileIndex: z.number().int().min(0).max(MAX_UPLOAD_FILES - 1).optional(),
   metadata: z
     .object({
       albumTitle: z.string().optional(),
@@ -120,13 +120,14 @@ export async function POST(request: NextRequest) {
       })
     );
 
-    const cover = records[0];
+    const cover = records[parsed.data.coverFileIndex ?? 0] ?? records[0];
     const albumPayload = {
       id: parsed.data.albumId,
       user_id: user.id,
       title: albumTitle,
       description: metadata.notes ?? "",
-      cover_path: cover.thumbnail_url,
+      cover_path: cover.original_url,
+      cover_photo_id: cover.id,
       location: metadata.location,
       date: cover.taken_at?.slice(0, 10),
       visibility: "public"
@@ -201,8 +202,8 @@ function createUploadRecord({
     thumbnail_path: originalKey,
     image_path: originalKey,
     original_url: publicObjectUrl(originalKey),
-    preview_url: imageProcessUrl(originalKey, "image/resize,w_2400/quality,q_86/format,jpg"),
-    thumbnail_url: imageProcessUrl(originalKey, "image/resize,w_760/quality,q_78/format,jpg"),
+    preview_url: publicObjectUrl(originalKey),
+    thumbnail_url: publicObjectUrl(originalKey),
     file_size: file.size,
     mime_type: file.mimeType,
     uploaded_at: createdAt,
@@ -222,10 +223,23 @@ function createUploadRecord({
 }
 
 async function upsertAlbumSafely(supabase: NonNullable<ReturnType<typeof createSupabaseAdminClient>>, payload: Record<string, unknown>) {
-  const { error } = await supabase.from("albums").upsert(stripUndefinedValues(payload));
-  if (error) {
-    throw new Error(error.message);
+  let nextPayload = stripUndefinedValues(payload);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const { error } = await supabase.from("albums").upsert(nextPayload);
+    if (!error) return;
+
+    const missingColumn = extractMissingAlbumColumn(error.message);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      throw new Error(error.message);
+    }
+
+    const fallbackPayload = { ...nextPayload };
+    delete fallbackPayload[missingColumn];
+    nextPayload = fallbackPayload;
   }
+
+  throw new Error("数据库 albums 表缺少过多字段，请重新执行 supabase/schema.sql。");
 }
 
 async function insertPhotosWithSchemaFallback(
@@ -333,5 +347,17 @@ function stripUndefinedValues(record: Record<string, unknown>) {
 }
 
 function extractMissingPhotoColumn(message: string) {
-  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
+  return (
+    message.match(/'([^']+)' column of 'photos'/i)?.[1] ??
+    message.match(/column "([^"]+)" of relation "photos"/i)?.[1] ??
+    null
+  );
+}
+
+function extractMissingAlbumColumn(message: string) {
+  return (
+    message.match(/'([^']+)' column of 'albums'/i)?.[1] ??
+    message.match(/column "([^"]+)" of relation "albums"/i)?.[1] ??
+    null
+  );
 }

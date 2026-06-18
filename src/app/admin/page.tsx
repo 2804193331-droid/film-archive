@@ -305,7 +305,7 @@ async function readRecentPhotos(supabase: SupabaseAdmin): Promise<RecentPhoto[]>
   return response.data.map((item: any) => ({
     id: item.id,
     title: item.title,
-    thumbnailUrl: item.thumbnail_url ?? item.original_url ?? (item.original_path ? publicObjectUrl(item.original_path) : undefined),
+    thumbnailUrl: item.original_url ?? (item.original_path ? publicObjectUrl(item.original_path) : undefined) ?? item.thumbnail_url,
     size: item.file_size,
     mimeType: item.mime_type,
     uploadedAt: item.uploaded_at ?? item.created_at

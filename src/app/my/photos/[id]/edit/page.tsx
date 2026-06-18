@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { EditAlbumForm } from "@/components/edit-album-form";
-import { isAdminUser } from "@/lib/admin";
+import { canAccessAdmin } from "@/lib/admin";
 import { getAppSessionFromServerCookies } from "@/lib/app-session";
-import { getAlbum } from "@/lib/photos";
+import { getAlbum, getAlbumPhotos } from "@/lib/photos";
 import styles from "./page.module.css";
 
 export default async function EditMyAlbumPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,12 +13,12 @@ export default async function EditMyAlbumPage({ params }: { params: Promise<{ id
   }
 
   const { id } = await params;
-  const album = await getAlbum(id);
+  const [album, photos] = await Promise.all([getAlbum(id), getAlbumPhotos(id)]);
   if (!album) {
     notFound();
   }
 
-  if (album.userId !== session.id && !isAdminUser(session.id, session.username)) {
+  if (album.userId !== session.id && !canAccessAdmin(session)) {
     redirect("/my/photos");
   }
 
@@ -32,7 +32,7 @@ export default async function EditMyAlbumPage({ params }: { params: Promise<{ id
         </Link>
       </section>
 
-      <EditAlbumForm album={album} />
+      <EditAlbumForm album={album} photos={photos} />
     </main>
   );
 }
