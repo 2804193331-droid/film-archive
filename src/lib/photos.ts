@@ -30,12 +30,28 @@ export async function getAlbums(filters: ArchiveFilters = {}) {
 }
 
 export async function getAlbum(id: string) {
-  return (await getAlbums()).find((album) => album.id === id) ?? demoAlbums.find((album) => album.id === id) ?? null;
+  return (await getSupabaseAlbumById(id)) ?? demoAlbums.find((album) => album.id === id) ?? null;
 }
 
 export async function getAlbumPhotos(id: string) {
-  const photos = await getPhotos();
-  return photos.filter((photo) => photo.albumId === id);
+  const photos = await getSupabasePhotosForAlbum(id);
+  if (photos.length) {
+    return photos;
+  }
+
+  return demoPhotos.filter((photo) => photo.albumId === id);
+}
+
+export async function getAlbumWithPhotos(id: string) {
+  const supabaseBundle = await getSupabaseAlbumWithPhotos(id);
+  if (supabaseBundle) {
+    return supabaseBundle;
+  }
+
+  return {
+    album: demoAlbums.find((album) => album.id === id) ?? null,
+    photos: demoPhotos.filter((photo) => photo.albumId === id)
+  };
 }
 
 export async function getAlbumsForUser(userId: string, filters: ArchiveFilters = {}) {
@@ -149,34 +165,146 @@ async function getSupabaseAlbums() {
   return response.data.map((item): Album => {
     const owner = normalizeProfile(profilesById.get(item.user_id) ?? { id: item.user_id });
     const albumPhotos = photosByAlbum.get(item.id) ?? [];
-    const cover = albumPhotos.find((photo) => photo.id === item.cover_photo_id) ?? albumPhotos[0];
-    const photoIds = albumPhotos.map((photo) => photo.id);
-
-    return {
-      id: item.id,
-      userId: item.user_id ?? owner.id,
-      title: item.title,
-      description: item.description ?? undefined,
-      coverUrl: cover?.originalUrl ?? resolveStoredUrl(item.cover_path, "original") ?? demoAlbums[0].coverUrl,
-      coverPhotoId: item.cover_photo_id ?? cover?.id,
-      coverWidth: cover?.width ?? 1600,
-      coverHeight: cover?.height ?? 1200,
-      photoCount: photoIds.length || albumPhotos.length,
-      photoIds,
-      camera: cover?.camera,
-      cameraType: cover?.cameraType,
-      lens: cover?.lens,
-      film: cover?.film,
-      filmBrand: cover?.filmBrand,
-      iso: cover?.iso,
-      takenAt: cover?.takenAt,
-      location: item.location ?? cover?.location ?? undefined,
-      date: item.date ?? cover?.takenAt?.slice(0, 10) ?? undefined,
-      owner,
-      visibility: item.visibility ?? "public",
-      createdAt: item.created_at ?? new Date().toISOString()
-    };
+    return mapSupabaseAlbum(item, albumPhotos, owner);
   });
+}
+
+async function getSupabaseAlbumById(id: string) {
+  const item = await readSupabaseAlbumRow(id);
+  if (!item) {
+    return null;
+  }
+
+  const [albumPhotos, profilesById] = await Promise.all([
+    getSupabasePhotosForAlbum(id),
+    getProfilesById([item.user_id].filter(Boolean))
+  ]);
+  const owner = normalizeProfile(profilesById.get(item.user_id) ?? { id: item.user_id });
+
+  return mapSupabaseAlbum(item, albumPhotos, owner);
+}
+
+async function getSupabaseAlbumWithPhotos(id: string) {
+  const item = await readSupabaseAlbumRow(id);
+  if (!item) {
+    return null;
+  }
+
+  const [albumPhotos, profilesById] = await Promise.all([
+    getSupabasePhotosForAlbum(id),
+    getProfilesById([item.user_id].filter(Boolean))
+  ]);
+  const owner = normalizeProfile(profilesById.get(item.user_id) ?? { id: item.user_id });
+
+  return {
+    album: mapSupabaseAlbum(item, albumPhotos, owner),
+    photos: albumPhotos
+  };
+}
+
+async function readSupabaseAlbumRow(id: string) {
+  const supabase = createSupabaseAdminClient();
+  if (!supabase) {
+    return null;
+  }
+
+  let response: { data: any | null; error: { message?: string } | null } = await supabase
+    .from("albums")
+    .select("id,user_id,title,description,cover_path,cover_photo_id,location,date,visibility,created_at")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (response.error?.message?.includes("cover_photo_id")) {
+    response = await supabase
+      .from("albums")
+      .select("id,user_id,title,description,cover_path,location,date,visibility,created_at")
+      .eq("id", id)
+      .maybeSingle();
+  }
+
+  return response.error ? null : response.data;
+}
+
+async function getSupabasePhotosForAlbum(albumId: string) {
+  const supabase = createSupabaseAdminClient();
+  if (!supabase) {
+    return [];
+  }
+
+  const excludedColumns = new Set<string>();
+
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const { data, error } = await supabase
+      .from("photos")
+      .select(buildPhotoSelect(excludedColumns))
+      .eq("album_id", albumId)
+      .order("created_at", { ascending: true })
+      .limit(500);
+
+    if (!error) {
+      return (data ?? []).map(mapSupabasePhoto);
+    }
+
+    const missingColumn = extractMissingPhotoColumn(error.message);
+    if (!missingColumn) {
+      return [];
+    }
+
+    excludedColumns.add(missingColumn);
+  }
+
+  return [];
+}
+
+function mapSupabaseAlbum(item: any, albumPhotos: Photo[], owner: Uploader): Album {
+  const cover = findAlbumCoverPhoto(albumPhotos, item.cover_photo_id, item.cover_path);
+  const photoIds = albumPhotos.map((photo) => photo.id);
+  const storedCoverUrl = resolveStoredUrl(item.cover_path, "original");
+
+  return {
+    id: item.id,
+    userId: item.user_id ?? owner.id,
+    title: item.title,
+    description: item.description ?? undefined,
+    coverUrl: storedCoverUrl ?? cover?.originalUrl ?? demoAlbums[0].coverUrl,
+    coverPhotoId: item.cover_photo_id ?? cover?.id,
+    coverWidth: cover?.width ?? 1600,
+    coverHeight: cover?.height ?? 1200,
+    photoCount: photoIds.length || albumPhotos.length,
+    photoIds,
+    camera: cover?.camera,
+    cameraType: cover?.cameraType,
+    lens: cover?.lens,
+    film: cover?.film,
+    filmBrand: cover?.filmBrand,
+    iso: cover?.iso,
+    takenAt: cover?.takenAt,
+    location: item.location ?? cover?.location ?? undefined,
+    date: item.date ?? cover?.takenAt?.slice(0, 10) ?? undefined,
+    owner,
+    visibility: item.visibility ?? "public",
+    createdAt: item.created_at ?? new Date().toISOString()
+  };
+}
+
+function findAlbumCoverPhoto(albumPhotos: Photo[], coverPhotoId?: string | null, coverPath?: string | null) {
+  if (coverPhotoId) {
+    const byId = albumPhotos.find((photo) => photo.id === coverPhotoId);
+    if (byId) return byId;
+  }
+
+  if (coverPath) {
+    const normalizedCover = normalizeStoredPath(coverPath);
+    const byPath = albumPhotos.find((photo) => {
+      const candidates = [photo.originalUrl, photo.previewUrl, photo.thumbnailUrl, photo.originalPath, photo.previewPath, photo.thumbnailPath]
+        .filter(Boolean)
+        .map((value) => normalizeStoredPath(value!));
+      return candidates.includes(normalizedCover);
+    });
+    if (byPath) return byPath;
+  }
+
+  return albumPhotos[0];
 }
 
 async function getProfilesById(userIds: string[]) {
@@ -241,7 +369,11 @@ function buildPhotoSelect(excludedColumns: Set<string>) {
 }
 
 function extractMissingPhotoColumn(message: string) {
-  return message.match(/'([^']+)' column of 'photos'/i)?.[1] ?? null;
+  return (
+    message.match(/'([^']+)' column of 'photos'/i)?.[1] ??
+    message.match(/column "([^"]+)" of relation "photos"/i)?.[1] ??
+    null
+  );
 }
 
 function filterAlbums(albums: Album[], filters: ArchiveFilters) {
@@ -371,6 +503,25 @@ function resolveStoredUrl(value: unknown, _kind: "original" | "preview" | "thumb
   }
 
   return publicObjectUrl(text);
+}
+
+function normalizeStoredPath(value: string) {
+  let text = value.trim().split("?")[0] ?? "";
+
+  try {
+    const parsed = new URL(text);
+    text = parsed.pathname;
+  } catch {
+    // Keep relative OSS object keys as-is.
+  }
+
+  try {
+    text = decodeURIComponent(text);
+  } catch {
+    // Keep invalid encodings comparable.
+  }
+
+  return text.replace(/^\/+/, "");
 }
 
 function normalizeProfile(profile: any): Uploader {

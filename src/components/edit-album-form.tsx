@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import type { SyntheticEvent } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePlus, RotateCcw, Star, Trash2, UploadCloud, X } from "lucide-react";
 import { cameras, films, lenses } from "@/lib/catalog";
@@ -351,7 +352,13 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
               const isCover = coverSelection === photo.id;
               return (
                 <article className={`${styles.manageTile} ${isCover ? styles.manageTileActive : ""}`} key={photo.id}>
-                  <img src={replacement?.url ?? photo.originalUrl} alt={photo.title} />
+                  <img
+                    src={replacement?.url ?? editPreviewUrl(photo.originalUrl)}
+                    alt={photo.title}
+                    loading="lazy"
+                    decoding="async"
+                    onError={replacement ? undefined : (event) => fallBackToOriginal(event, photo.originalUrl)}
+                  />
                   <div className={styles.manageTileMeta}>
                     {isCover ? <strong>封面</strong> : <span>照片</span>}
                     {replacement ? <span>已替换</span> : null}
@@ -385,7 +392,7 @@ export function EditAlbumForm({ album, photos }: { album: Album; photos: Photo[]
               const isCover = coverSelection === photo.id;
               return (
                 <article className={`${styles.manageTile} ${isCover ? styles.manageTileActive : ""}`} key={photo.id}>
-                  <img src={photo.url} alt={photo.name} />
+                  <img src={photo.url} alt={photo.name} loading="lazy" decoding="async" />
                   <div className={styles.manageTileMeta}>
                     {isCover ? <strong>封面</strong> : <span>新增</span>}
                   </div>
@@ -565,4 +572,29 @@ function mimeTypeFromName(name: string) {
 
 function makeClientId(file: File) {
   return `${window.crypto?.randomUUID?.() ?? `${file.name}-${file.lastModified}-${Math.random()}`}`;
+}
+
+function editPreviewUrl(url: string) {
+  if (!url || url.startsWith("blob:") || !isAliOssUrl(url)) {
+    return url;
+  }
+
+  const process = encodeURIComponent("image/resize,w_420/quality,q_72/format,jpg");
+  return `${url}${url.includes("?") ? "&" : "?"}x-oss-process=${process}`;
+}
+
+function isAliOssUrl(url: string) {
+  try {
+    const hostname = new URL(url).hostname;
+    return hostname.includes(".oss-") || hostname.endsWith(".aliyuncs.com");
+  } catch {
+    return false;
+  }
+}
+
+function fallBackToOriginal(event: SyntheticEvent<HTMLImageElement>, fallbackUrl: string) {
+  const image = event.currentTarget;
+  if (image.src !== fallbackUrl) {
+    image.src = fallbackUrl;
+  }
 }

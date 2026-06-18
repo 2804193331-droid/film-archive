@@ -3,7 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { EditAlbumForm } from "@/components/edit-album-form";
 import { canAccessAdmin } from "@/lib/admin";
 import { getAppSessionFromServerCookies } from "@/lib/app-session";
-import { getAlbum, getAlbumPhotos } from "@/lib/photos";
+import { getAlbumWithPhotos } from "@/lib/photos";
 import styles from "./page.module.css";
 
 export default async function EditMyAlbumPage({ params }: { params: Promise<{ id: string }> }) {
@@ -13,7 +13,7 @@ export default async function EditMyAlbumPage({ params }: { params: Promise<{ id
   }
 
   const { id } = await params;
-  const [album, photos] = await Promise.all([getAlbum(id), getAlbumPhotos(id)]);
+  const { album, photos } = await getAlbumWithPhotos(id);
   if (!album) {
     notFound();
   }
