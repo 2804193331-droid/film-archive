@@ -26,7 +26,6 @@
 }
 
 .imageLink img {
-  opacity: 0;
   transition:
     opacity 240ms ease,
     transform 260ms ease;
@@ -34,10 +33,6 @@
 
 .card:hover .media {
   --media-scale: 1.045;
-}
-
-.imageLink img.loaded {
-  opacity: 1;
 }
 
 .skeleton {

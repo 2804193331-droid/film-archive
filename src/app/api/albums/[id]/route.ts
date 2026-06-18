@@ -766,6 +766,9 @@ function extractMissingPhotoColumn(message: string) {
   return (
     message.match(/'([^']+)' column of 'photos'/i)?.[1] ??
     message.match(/column "([^"]+)" of relation "photos"/i)?.[1] ??
+    message.match(/column (?:public\.)?photos\."?([a-z0-9_]+)"? does not exist/i)?.[1] ??
+    message.match(/column "([^"]+)" does not exist/i)?.[1] ??
+    message.match(/could not find the ['"]([^'"]+)['"] column/i)?.[1] ??
     null
   );
 }
