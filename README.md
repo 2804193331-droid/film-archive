@@ -9,7 +9,7 @@ Film Archive 是一个 Next.js 摄影作品社区与胶片作品档案馆。
 - Supabase Database
 - 阿里云 OSS 图片存储
 - 小红书式作品组瀑布流
-- 批量上传和 OSS 直传进度条
+
 
 ## 功能
 
