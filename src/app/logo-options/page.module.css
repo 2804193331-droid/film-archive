@@ -1,0 +1,165 @@
+.header {
+  display: grid;
+  gap: 10px;
+  padding: 64px 0 34px;
+}
+
+.header p,
+.header h1,
+.header span {
+  margin: 0;
+}
+
+.header p {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.header h1 {
+  font-size: clamp(30px, 4vw, 52px);
+  line-height: 1.04;
+  letter-spacing: 0;
+}
+
+.header span {
+  color: var(--text-muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  padding-bottom: 80px;
+}
+
+.card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.canvas {
+  aspect-ratio: 4 / 3;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.canvas > div {
+  transform: scale(0.55);
+}
+
+.iconMark {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  display: grid;
+  place-items: center;
+}
+
+.outlineFlower {
+  color: #d9657b;
+}
+
+.shutterMark {
+  color: var(--text);
+}
+
+.shutterMark i {
+  position: absolute;
+  top: 17px;
+  right: 24px;
+  width: 28px;
+  height: 42px;
+  border-radius: 50% 50% 46% 46%;
+  background: #ef9aaa;
+  transform: rotate(36deg);
+}
+
+.filmMark svg:first-child {
+  color: var(--text);
+}
+
+.filmMark svg:last-child,
+.focusMark svg:last-child {
+  position: absolute;
+  color: #e87f92;
+  fill: color-mix(in srgb, #e87f92 22%, transparent);
+}
+
+.monogramMark {
+  border: 1px solid var(--text);
+  border-radius: 50%;
+}
+
+.monogramMark strong {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 58px;
+  font-weight: 500;
+}
+
+.monogramMark i {
+  position: absolute;
+  top: 20px;
+  right: 28px;
+  width: 25px;
+  height: 36px;
+  border-radius: 50% 50% 46% 46%;
+  background: #ec92a3;
+  transform: rotate(34deg);
+}
+
+.focusMark svg:first-child {
+  color: var(--text-muted);
+}
+
+.caption {
+  min-height: 86px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 15px;
+}
+
+.caption > span {
+  color: #d45d74;
+  font-weight: 780;
+}
+
+.caption h2,
+.caption p {
+  margin: 0;
+}
+
+.caption h2 {
+  font-size: 15px;
+}
+
+.caption p {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .header {
+    padding-top: 38px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
