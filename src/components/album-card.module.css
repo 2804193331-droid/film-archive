@@ -1,24 +1,18 @@
 .card {
   display: inline-block;
   width: 100%;
-  margin: 0 0 22px;
+  margin: 0 0 24px;
   break-inside: avoid;
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  box-shadow: var(--shadow);
   transform-origin: center;
-}
-
-.card:hover {
-  box-shadow: var(--shadow-strong);
 }
 
 .cover {
   position: relative;
   display: block;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-subtle);
+  box-shadow: 0 1px 0 var(--line);
 }
 
 .media {
@@ -32,7 +26,7 @@
 }
 
 .card:hover .media {
-  --media-scale: 1.045;
+  --media-scale: 1.028;
 }
 
 .skeleton {
@@ -46,10 +40,20 @@
   animation: shimmer 1.2s ease-in-out infinite;
 }
 
-.body {
-  padding: 12px 13px 13px;
+.fallback {
+  aspect-ratio: 4 / 3;
   display: grid;
-  gap: 9px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.body {
+  padding: 10px 2px 0;
+  display: grid;
+  gap: 7px;
 }
 
 .titleRow {
@@ -60,8 +64,21 @@
 }
 
 .title {
-  font-weight: 680;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 650;
   line-height: 1.35;
+  white-space: nowrap;
+}
+
+.count {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .actions {
@@ -75,21 +92,34 @@
 .meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 7px 10px;
+  gap: 6px 10px;
   color: var(--text-muted);
-  font-size: 12.5px;
+  font-size: 12px;
 }
 
-.meta span,
-.ownerLink {
+.meta span {
+  max-width: 100%;
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ownerLink {
+  width: fit-content;
+  max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
   color: inherit;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   transition: color 160ms ease;
 }
 
@@ -102,6 +132,42 @@
   height: 16px;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.ownerLink img {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+@media (max-width: 520px) {
+  .card {
+    margin-bottom: 18px;
+  }
+
+  .body {
+    padding-top: 8px;
+    gap: 6px;
+  }
+
+  .title {
+    font-size: 13px;
+  }
+
+  .meta {
+    display: grid;
+    gap: 5px;
+    font-size: 11px;
+  }
+
+  .meta span:nth-child(n + 2) {
+    display: none;
+  }
+
+  .ownerLink {
+    font-size: 11px;
+  }
 }
 
 @keyframes shimmer {

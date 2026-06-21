@@ -1,5 +1,5 @@
 .cover {
-  border-radius: 20px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-subtle);
 }

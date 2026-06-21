@@ -1,39 +1,42 @@
 :root {
   color-scheme: light;
-  --bg: #f6f5f2;
+  --bg: #f5f5f7;
   --surface: #ffffff;
-  --surface-subtle: #ebe8e2;
-  --surface-glass: rgba(255, 255, 255, 0.72);
-  --surface-strong: #171717;
-  --text: #171717;
-  --text-muted: #6c685f;
-  --line: rgba(42, 39, 34, 0.12);
-  --accent: #9f2634;
+  --surface-subtle: #e9e9ed;
+  --surface-glass: rgba(248, 248, 250, 0.78);
+  --surface-strong: #1d1d1f;
+  --text: #1d1d1f;
+  --text-muted: #6e6e73;
+  --line: rgba(29, 29, 31, 0.1);
+  --line-strong: rgba(29, 29, 31, 0.18);
+  --accent: #0066cc;
   --accent-ink: #ffffff;
-  --positive: #237a57;
-  --warning: #a76d17;
-  --shadow: 0 16px 34px rgba(28, 25, 20, 0.08);
-  --shadow-strong: 0 22px 46px rgba(28, 25, 20, 0.14);
-  --radius: 16px;
-  --max: 1480px;
+  --positive: #16835d;
+  --warning: #a65d08;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
+  --shadow-strong: 0 14px 36px rgba(0, 0, 0, 0.1);
+  --radius: 8px;
+  --radius-large: 12px;
+  --max: 1560px;
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0f1115;
-  --surface: #151821;
-  --surface-subtle: #1a1d24;
-  --surface-glass: rgba(21, 24, 33, 0.72);
-  --surface-strong: #f3f0ea;
-  --text: #f3f0ea;
-  --text-muted: #a9adba;
-  --line: rgba(255, 255, 255, 0.11);
-  --accent: #e96572;
-  --accent-ink: #151821;
-  --positive: #69c79b;
-  --warning: #d7a24b;
-  --shadow: 0 18px 40px rgba(0, 0, 0, 0.24);
-  --shadow-strong: 0 26px 54px rgba(0, 0, 0, 0.34);
+  --bg: #101114;
+  --surface: #1c1c1e;
+  --surface-subtle: #28282c;
+  --surface-glass: rgba(24, 24, 27, 0.8);
+  --surface-strong: #f5f5f7;
+  --text: #f5f5f7;
+  --text-muted: #a1a1a6;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.18);
+  --accent: #5aa7ff;
+  --accent-ink: #101114;
+  --positive: #68c89a;
+  --warning: #e3a33b;
+  --shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  --shadow-strong: 0 18px 44px rgba(0, 0, 0, 0.34);
 }
 
 * {
@@ -57,6 +60,8 @@ body {
   font-size: 15px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
 }
 
 a {
@@ -75,14 +80,23 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 img {
   display: block;
   max-width: 100%;
 }
 
 .page-shell {
-  width: min(100% - 32px, var(--max));
+  width: min(100% - 40px, var(--max));
   margin: 0 auto;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
 }
 
 .sr-only {
@@ -103,7 +117,7 @@ img {
 .danger-button {
   min-height: 40px;
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
   display: inline-flex;
@@ -123,6 +137,7 @@ img {
   border-color: transparent;
   background: var(--surface-strong);
   color: var(--bg);
+  font-weight: 620;
 }
 
 .ghost-button {
@@ -145,7 +160,15 @@ img {
 .icon-button:hover,
 .danger-button:hover {
   transform: translateY(-1px);
-  box-shadow: var(--shadow);
+  border-color: var(--line-strong);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+}
+
+.button:active,
+.ghost-button:active,
+.icon-button:active,
+.danger-button:active {
+  transform: translateY(0) scale(0.98);
 }
 
 .meta-text {
@@ -159,8 +182,8 @@ img {
   width: 100%;
   min-height: 42px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
   color: var(--text);
   padding: 0 12px;
   outline: none;
@@ -179,6 +202,11 @@ img {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 
+:where(a, button, input, textarea, select):focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 72%, white);
+  outline-offset: 2px;
+}
+
 .section-title {
   margin: 0;
   font-size: clamp(28px, 4vw, 54px);
@@ -189,13 +217,12 @@ img {
 .panel {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  box-shadow: var(--shadow);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
 }
 
 @media (max-width: 720px) {
   .page-shell {
-    width: min(100% - 20px, var(--max));
+    width: min(100% - 16px, var(--max));
   }
 
   .button,
@@ -203,5 +230,16 @@ img {
   .danger-button {
     min-height: 38px;
     padding: 0 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

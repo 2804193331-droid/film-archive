@@ -48,11 +48,11 @@ export function AuthNav() {
           {state.avatarUrl ? <img src={state.avatarUrl} alt="" /> : <UserRound size={18} aria-hidden />}
           <span>{state.displayName}</span>
         </Link>
-        <Link className={styles.compactLink} href="/my/photos">
+        <Link className={`${styles.compactLink} ${styles.sessionLink}`} href="/my/photos">
           我的照片
         </Link>
         {state.isAdmin ? (
-          <Link className={styles.compactLink} href="/admin">
+          <Link className={`${styles.compactLink} ${styles.sessionLink}`} href="/admin">
             <Shield size={16} aria-hidden />
             后台
           </Link>

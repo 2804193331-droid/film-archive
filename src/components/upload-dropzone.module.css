@@ -1,20 +1,20 @@
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 0.95fr) minmax(340px, 0.62fr);
-  gap: 22px;
+  gap: 18px;
   align-items: start;
 }
 
 .dropzone {
   min-height: clamp(520px, 72vh, 760px);
   border: 1px dashed var(--line);
-  border-radius: 20px;
+  border-radius: var(--radius-large);
   display: grid;
   place-items: center;
   align-content: center;
   gap: 16px;
   padding: 30px;
-  background: color-mix(in srgb, var(--surface) 46%, transparent);
+  background: color-mix(in srgb, var(--surface) 54%, transparent);
   text-align: center;
   overflow: clip;
 }
@@ -34,7 +34,7 @@
 
 .authNotice {
   border: 1px solid var(--line);
-  border-radius: 999px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   color: var(--text-muted);
   padding: 9px 12px;
@@ -74,7 +74,7 @@
 
 .previewHero {
   height: clamp(320px, 58vh, 660px);
-  border-radius: 16px;
+  border-radius: var(--radius);
   overflow: hidden;
   background: #151821;
   display: grid;
@@ -96,7 +96,7 @@
   position: relative;
   min-width: 0;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: 6px;
   overflow: hidden;
   background: color-mix(in srgb, var(--surface) 70%, transparent);
 }
@@ -169,7 +169,7 @@
 
 .detectedMeta {
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius);
   background: color-mix(in srgb, var(--surface) 72%, transparent);
   color: var(--text-muted);
   padding: 10px 12px;
@@ -179,10 +179,9 @@
 
 .metaPanel {
   border: 1px solid var(--line);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--surface) 76%, transparent);
-  box-shadow: var(--shadow);
-  padding: 16px;
+  border-radius: var(--radius-large);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 18px;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 13px;
@@ -214,7 +213,7 @@
   grid-column: 1 / -1;
   min-height: 38px;
   border: 1px solid var(--line);
-  border-radius: 14px;
+  border-radius: var(--radius);
   display: flex;
   align-items: center;
   gap: 9px;

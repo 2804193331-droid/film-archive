@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Camera, Film, UserRound } from "lucide-react";
+import { Camera, Film, ImageOff, UserRound } from "lucide-react";
 import { RotatedImage } from "@/components/rotated-image";
 import type { Photo } from "@/lib/types";
 import styles from "./photo-card.module.css";
 
 export function PhotoCard({ photo }: { photo: Photo }) {
   const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const ownerHref = `/users/${encodeURIComponent(photo.uploader.id || photo.uploader.username)}`;
 
   return (
@@ -19,21 +20,30 @@ export function PhotoCard({ photo }: { photo: Photo }) {
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "80px" }}
       transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-      whileHover={{ scale: 1.02 }}
     >
       <Link className={styles.imageLink} href={`/photos/${photo.id}`} aria-label={`查看 ${photo.title}`}>
-        {!loaded ? <span className={styles.skeleton} aria-hidden /> : null}
-        <RotatedImage
-          src={photo.thumbnailUrl}
-          alt={photo.title}
-          rotation={photo.rotation}
-          width={photo.width}
-          height={photo.height}
-          loading="lazy"
-          onLoad={() => setLoaded(true)}
-          className={styles.media}
-          imageClassName={loaded ? styles.loaded : ""}
-        />
+        {!loaded && !failed ? <span className={styles.skeleton} aria-hidden /> : null}
+        {failed ? (
+          <span className={styles.fallback}>
+            <ImageOff size={20} aria-hidden />
+            <span>影像暂不可用</span>
+          </span>
+        ) : (
+          <RotatedImage
+            src={photo.thumbnailUrl}
+            alt={photo.title}
+            rotation={photo.rotation}
+            width={photo.width}
+            height={photo.height}
+            loading="lazy"
+            onLoad={() => setLoaded(true)}
+            onError={() => {
+              setLoaded(true);
+              setFailed(true);
+            }}
+            className={styles.media}
+          />
+        )}
       </Link>
       <div className={styles.body}>
         <Link href={`/photos/${photo.id}`} className={styles.title}>
