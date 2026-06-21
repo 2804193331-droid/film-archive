@@ -28,7 +28,6 @@ export function Header() {
           </Link>
           <nav className={styles.primaryNav} aria-label="主要导航">
             <Link href="/">首页</Link>
-            <Link href="/explore">探索</Link>
             <Link href="/upload" className={styles.uploadLink} title="上传照片">
               <Upload size={15} aria-hidden />
               <span>上传</span>

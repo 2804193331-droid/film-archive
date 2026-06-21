@@ -187,7 +187,8 @@
   gap: 13px;
 }
 
-.metaPanel label {
+.metaPanel label,
+.field {
   display: grid;
   gap: 7px;
   color: var(--text-muted);

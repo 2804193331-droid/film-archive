@@ -3,6 +3,7 @@
   --image-width: 100%;
   --rotation: 0deg;
   --media-scale: 1;
+  --rotation-overscan: 1;
 
   position: relative;
   display: block;
@@ -19,7 +20,7 @@
   width: var(--image-width);
   height: var(--image-height);
   object-fit: cover;
-  transform: translate(-50%, -50%) rotate(var(--rotation)) scale(var(--media-scale));
+  transform: translate(-50%, -50%) rotate(var(--rotation)) scale(var(--media-scale)) scale(var(--rotation-overscan));
   transform-origin: center;
 }
 

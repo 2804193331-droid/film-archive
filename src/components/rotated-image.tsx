@@ -35,6 +35,7 @@ export function RotatedImage({
     ...(aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : null),
     "--image-height": imageHeight,
     "--image-width": imageWidth,
+    "--rotation-overscan": fit === "cover" && isRightAngleRotation(normalizedRotation) ? "1.015" : "1",
     "--rotation": `${normalizedRotation}deg`
   } as CSSProperties;
 

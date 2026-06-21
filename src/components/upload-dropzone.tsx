@@ -14,6 +14,7 @@ import {
   X
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { LocationPicker } from "@/components/location-picker";
 import { RotatedImage } from "@/components/rotated-image";
 import { cameras, films, lenses } from "@/lib/catalog";
 import { rotateBy, type Rotation } from "@/lib/rotation";
@@ -578,14 +579,13 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
             onChange={(event) => setMetadata({ ...metadata, takenAt: event.target.value })}
           />
         </label>
-        <label>
-          地点
-          <input
-            className="input"
+        <div className={styles.field}>
+          <span>地点</span>
+          <LocationPicker
             value={metadata.location}
-            onChange={(event) => setMetadata({ ...metadata, location: event.target.value })}
+            onChange={(location) => setMetadata((current) => ({ ...current, location }))}
           />
-        </label>
+        </div>
         <label className={styles.full}>
           备注
           <textarea className="textarea" value={metadata.notes} onChange={(event) => setMetadata({ ...metadata, notes: event.target.value })} />
