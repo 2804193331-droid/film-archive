@@ -408,7 +408,7 @@ export function UploadDropzone({ readOnly }: { readOnly: boolean }) {
                   rotation={coverPhoto.rotation}
                   width={coverPhoto.width}
                   height={coverPhoto.height}
-                  fit="contain"
+                  fit="cover"
                   className={styles.previewHeroImage}
                 />
               ) : null}

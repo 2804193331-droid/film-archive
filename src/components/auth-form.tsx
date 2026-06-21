@@ -45,6 +45,11 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
 
   return (
     <form className={styles.form} onSubmit={submit}>
+      <header className={styles.header}>
+        <span>{mode === "login" ? "WELCOME BACK" : "CREATE ACCOUNT"}</span>
+        <h1>{mode === "login" ? "登录 Film Archive" : "加入 Film Archive"}</h1>
+      </header>
+
       <label>
         用户名
         <input

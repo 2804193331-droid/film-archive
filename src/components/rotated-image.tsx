@@ -27,20 +27,24 @@ export function RotatedImage({
   ...imageProps
 }: RotatedImageProps) {
   const normalizedRotation = normalizeRotation(rotation);
+  const rightAngleRotation = isRightAngleRotation(normalizedRotation);
   const aspect = width && height ? rotatedAspectRatio(width, height, normalizedRotation) : null;
-  const imageWidth = width && height && isRightAngleRotation(normalizedRotation) ? `${(width / height) * 100}%` : "100%";
-  const imageHeight = width && height && isRightAngleRotation(normalizedRotation) ? `${(height / width) * 100}%` : "100%";
+  const imageWidth = width && height && rightAngleRotation ? `${(width / height) * 100}%` : "100%";
+  const imageHeight = width && height && rightAngleRotation ? `${(height / width) * 100}%` : "100%";
   const frameStyle = {
     ...style,
     ...(aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : null),
     "--image-height": imageHeight,
     "--image-width": imageWidth,
-    "--rotation-overscan": fit === "cover" && isRightAngleRotation(normalizedRotation) ? "1.015" : "1",
+    "--rotation-overscan": fit === "cover" && rightAngleRotation ? "1.006" : "1",
     "--rotation": `${normalizedRotation}deg`
   } as CSSProperties;
 
   return (
-    <span className={`${styles.frame} ${fit === "contain" ? styles.contain : ""} ${className ?? ""}`} style={frameStyle}>
+    <span
+      className={`${styles.frame} ${fit === "contain" ? styles.contain : styles.cover} ${fit === "cover" && rightAngleRotation ? styles.rightAngleCover : ""} ${className ?? ""}`}
+      style={frameStyle}
+    >
       <img className={`${styles.image} ${imageClassName ?? ""}`} src={src} alt={alt} {...imageProps} />
     </span>
   );

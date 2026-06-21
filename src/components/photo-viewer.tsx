@@ -52,7 +52,7 @@ export function PhotoViewer({
           rotation={normalizedRotation}
           width={width}
           height={height}
-          fit="contain"
+          fit="cover"
           className={styles.stageImage}
         />
       </button>

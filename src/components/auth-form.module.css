@@ -4,6 +4,25 @@
   gap: 16px;
 }
 
+.header {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 8px;
+}
+
+.header span {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: clamp(25px, 3vw, 34px);
+  line-height: 1.12;
+  letter-spacing: 0;
+}
+
 .form label {
   display: grid;
   gap: 7px;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Search, Upload } from "lucide-react";
 import { useEffect, useState } from "react";
 import { AuthNav } from "@/components/auth-nav";
+import { SakuraLogo } from "@/components/sakura-logo";
 import styles from "./header.module.css";
 
 export function Header() {
@@ -24,7 +25,8 @@ export function Header() {
       <div className={styles.inner}>
         <div className={styles.left}>
           <Link href="/" className={styles.brand} aria-label="Film Archive 首页">
-            Film Archive
+            <SakuraLogo size="small" />
+            <span>Film Archive</span>
           </Link>
           <nav className={styles.primaryNav} aria-label="主要导航">
             <Link href="/">首页</Link>

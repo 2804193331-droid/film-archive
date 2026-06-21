@@ -10,6 +10,7 @@
   width: 100%;
   overflow: hidden;
   background: var(--surface-subtle);
+  container-type: size;
 }
 
 .image {
@@ -17,13 +18,21 @@
   top: 50%;
   left: 50%;
   display: block;
-  width: var(--image-width);
-  height: var(--image-height);
+  width: 100%;
+  height: 100%;
+  max-width: none;
   object-fit: cover;
   transform: translate(-50%, -50%) rotate(var(--rotation)) scale(var(--media-scale)) scale(var(--rotation-overscan));
   transform-origin: center;
 }
 
 .contain .image {
+  width: var(--image-width);
+  height: var(--image-height);
   object-fit: contain;
+}
+
+.rightAngleCover .image {
+  width: 100cqh;
+  height: 100cqw;
 }

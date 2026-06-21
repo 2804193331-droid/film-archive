@@ -1,4 +1,5 @@
 .cover {
+  aspect-ratio: 16 / 10;
   border-radius: var(--radius);
   overflow: hidden;
   background: var(--surface-subtle);
@@ -6,5 +7,13 @@
 
 .media {
   width: 100%;
-  max-height: 70vh;
+  height: 100%;
+  max-height: none;
+  aspect-ratio: auto !important;
+}
+
+@media (max-width: 900px) {
+  .cover {
+    aspect-ratio: 4 / 5;
+  }
 }

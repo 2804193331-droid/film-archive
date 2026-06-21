@@ -1,27 +1,17 @@
 .authPage {
   min-height: calc(100vh - 120px);
   display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(320px, 440px);
-  gap: 48px;
+  grid-template-columns: minmax(360px, 1fr) minmax(320px, 440px);
+  gap: clamp(48px, 8vw, 140px);
   align-items: center;
-  padding: 48px 0;
-}
-
-.authPage p {
-  margin: 0 0 14px;
-  color: var(--accent);
-  font-weight: 760;
-}
-
-.authPage h1 {
-  margin: 0;
-  font-size: clamp(36px, 6vw, 72px);
-  line-height: 0.98;
+  padding: 64px 4vw;
 }
 
 @media (max-width: 840px) {
   .authPage {
     grid-template-columns: 1fr;
+    gap: 34px;
     align-items: start;
+    padding: 34px 0 56px;
   }
 }
