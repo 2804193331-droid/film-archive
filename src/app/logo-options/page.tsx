@@ -1,65 +1,102 @@
-import { Aperture, Film, Flower2, Focus } from "lucide-react";
 import { SakuraLogo } from "@/components/sakura-logo";
 import styles from "./page.module.css";
 
-const concepts = [
-  { id: "01", name: "樱花光圈", tone: "柔和、完整，适合社区主品牌" },
-  { id: "02", name: "单线樱花", tone: "轻盈、克制，适合极简摄影站" },
-  { id: "03", name: "花瓣快门", tone: "更像相机标志，摄影属性更强" },
-  { id: "04", name: "胶片花窗", tone: "胶片感明确，识别度更直接" },
-  { id: "05", name: "FA 花印", tone: "偏编辑杂志，适合作品档案馆" },
-  { id: "06", name: "对焦樱印", tone: "冷静、现代，适合工具与社区并存" }
+const schemes = [
+  {
+    id: "01",
+    name: "胶片花环",
+    badge: "当前推荐",
+    mood: "最克制，适合正式站。胶片环负责识别，樱花只做轻柔记忆点。",
+    className: "schemeBloom",
+    points: ["圆形胶片环", "樱花旋转打开", "背景装饰最淡"]
+  },
+  {
+    id: "02",
+    name: "樱花片窗",
+    badge: "更像画册",
+    mood: "更偏作品集，像从胶片片窗里看照片，樱花只留在角落。",
+    className: "schemeWindow",
+    points: ["胶片片窗", "画册式留白", "照片边界更干净"]
+  },
+  {
+    id: "03",
+    name: "镜头樱印",
+    badge: "更像相机品牌",
+    mood: "更现代，标志像镜头光圈和樱花印章组合，后台和工具页会更稳。",
+    className: "schemeLens",
+    points: ["镜头光圈", "单瓣樱花印", "质感更科技"]
+  }
 ];
 
 export default function LogoOptionsPage() {
   return (
-    <main className="page-shell">
+    <main className={`page-shell ${styles.page}`}>
       <header className={styles.header}>
-        <p>SAKURA IDENTITY STUDY</p>
-        <h1>Film Archive 标志方案</h1>
-        <span>当前使用 01，记住你喜欢的编号。</span>
+        <p>SAKURA FILM IDENTITY</p>
+        <h1>三套胶片樱花视觉方案</h1>
+        <span>先看整体气质，选一个编号，我再把全站固定到那套。</span>
       </header>
 
-      <section className={styles.grid} aria-label="樱花 Logo 方案">
-        {concepts.map((concept, index) => (
-          <article className={styles.card} key={concept.id}>
-            <div className={styles.canvas}>
-              {index === 0 ? <SakuraLogo size="large" /> : null}
-              {index === 1 ? (
-                <span className={`${styles.iconMark} ${styles.outlineFlower}`}>
-                  <Flower2 size={112} strokeWidth={1.15} aria-hidden />
-                </span>
+      <section className={styles.grid} aria-label="胶片樱花视觉方案">
+        {schemes.map((scheme) => (
+          <article className={`${styles.card} ${styles[scheme.className]}`} key={scheme.id}>
+            <div className={styles.cardHeader}>
+              <span>{scheme.id}</span>
+              <strong>{scheme.name}</strong>
+              <em>{scheme.badge}</em>
+            </div>
+
+            <div className={styles.logoStage}>
+              {scheme.id === "01" ? (
+                <div className={styles.logoLockup}>
+                  <SakuraLogo size="large" animate />
+                  <div>
+                    <strong>Film Archive</strong>
+                    <small>SAKURA FILM</small>
+                  </div>
+                </div>
               ) : null}
-              {index === 2 ? (
-                <span className={`${styles.iconMark} ${styles.shutterMark}`}>
-                  <Aperture size={106} strokeWidth={1.25} aria-hidden />
-                  <i />
-                </span>
+
+              {scheme.id === "02" ? (
+                <div className={`${styles.conceptLogo} ${styles.windowLogo}`} aria-hidden>
+                  <i className={styles.windowPetalOne} />
+                  <i className={styles.windowPetalTwo} />
+                  <span>FA</span>
+                </div>
               ) : null}
-              {index === 3 ? (
-                <span className={`${styles.iconMark} ${styles.filmMark}`}>
-                  <Film size={114} strokeWidth={1.1} aria-hidden />
-                  <Flower2 size={46} strokeWidth={1.5} aria-hidden />
-                </span>
-              ) : null}
-              {index === 4 ? (
-                <span className={`${styles.iconMark} ${styles.monogramMark}`}>
-                  <strong>FA</strong>
-                  <i />
-                </span>
-              ) : null}
-              {index === 5 ? (
-                <span className={`${styles.iconMark} ${styles.focusMark}`}>
-                  <Focus size={118} strokeWidth={1} aria-hidden />
-                  <Flower2 size={48} strokeWidth={1.4} aria-hidden />
-                </span>
+
+              {scheme.id === "03" ? (
+                <div className={`${styles.conceptLogo} ${styles.lensLogo}`} aria-hidden>
+                  <i className={styles.lensBladeOne} />
+                  <i className={styles.lensBladeTwo} />
+                  <i className={styles.lensBladeThree} />
+                  <span />
+                </div>
               ) : null}
             </div>
-            <div className={styles.caption}>
-              <span>{concept.id}</span>
-              <div>
-                <h2>{concept.name}</h2>
-                <p>{concept.tone}</p>
+
+            <div className={styles.mockSite} aria-hidden>
+              <div className={styles.mockNav}>
+                <span />
+                <i />
+                <i />
+              </div>
+              <div className={styles.mockBody}>
+                <div className={styles.mockPhoto} />
+                <div className={styles.mockStack}>
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
+            </div>
+
+            <div className={styles.copy}>
+              <p>{scheme.mood}</p>
+              <div className={styles.tags}>
+                {scheme.points.map((point) => (
+                  <span key={point}>{point}</span>
+                ))}
               </div>
             </div>
           </article>

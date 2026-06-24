@@ -8,24 +8,24 @@ export function AuthBrandPanel() {
   return (
     <motion.div
       className={styles.panel}
-      initial={{ opacity: 0, x: -48 }}
+      initial={{ opacity: 0, x: -44 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.58, ease: [0.19, 1, 0.22, 1] }}
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.88 }}
+        initial={{ opacity: 0, scale: 0.92 }}
         animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.3, delay: 0.08, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 0.52, delay: 0.08, ease: [0.19, 1, 0.22, 1] }}
       >
-        <SakuraLogo showName />
+        <SakuraLogo showName animate />
       </motion.div>
       <motion.div
         className={styles.signature}
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.24, delay: 0.18 }}
+        transition={{ duration: 0.32, delay: 0.44 }}
       >
-        <span>FILM · LIGHT · MEMORY</span>
+        <span>FILM / LIGHT / MEMORY</span>
         <span>EST. 2026</span>
       </motion.div>
     </motion.div>

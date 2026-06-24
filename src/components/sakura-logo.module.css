@@ -1,4 +1,10 @@
 .logo {
+  --logo-ink: #1d1d1f;
+  --logo-ink-soft: rgba(29, 29, 31, 0.42);
+  --logo-petal: #efa2af;
+  --logo-petal-deep: #d85f75;
+  --logo-paper: rgba(255, 255, 255, 0.7);
+
   display: inline-flex;
   align-items: center;
   gap: clamp(18px, 3vw, 34px);
@@ -9,61 +15,120 @@
   display: block;
   flex: 0 0 auto;
   aspect-ratio: 1;
-  color: #1d1d1f;
+  color: var(--logo-ink);
+  transform-origin: center;
 }
 
 .small .mark {
-  width: 24px;
+  width: 26px;
 }
 
 .large .mark {
   width: clamp(168px, 22vw, 286px);
 }
 
-.petal {
+.filmRing {
   position: absolute;
-  top: 5%;
-  left: 35%;
-  width: 30%;
-  height: 48%;
-  border: 1px solid color-mix(in srgb, #a43b50 28%, transparent);
-  border-radius: 50% 50% 44% 44%;
-  background: #efa3b0;
+  inset: 12%;
+  z-index: 1;
+  border: max(1px, 0.012em) solid color-mix(in srgb, currentColor 62%, transparent);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 0 45%, color-mix(in srgb, var(--logo-paper) 74%, transparent) 46% 52%, transparent 53%),
+    conic-gradient(from 18deg, color-mix(in srgb, currentColor 10%, transparent), transparent 24%, color-mix(in srgb, var(--logo-petal) 18%, transparent), transparent 70%);
+  box-shadow:
+    inset 0 0 0 max(1px, 0.014em) color-mix(in srgb, currentColor 9%, transparent),
+    0 max(4px, 0.035em) max(16px, 0.12em) color-mix(in srgb, #d85f75 9%, transparent);
+}
+
+.filmRing::before {
+  position: absolute;
+  inset: 18%;
+  content: "";
+  border: max(1px, 0.01em) solid color-mix(in srgb, currentColor 24%, transparent);
+  border-radius: 50%;
+}
+
+.filmPerfs {
+  position: absolute;
+  inset: 5%;
+  z-index: 2;
+  border-radius: 50%;
+  opacity: 0.4;
+  background:
+    radial-gradient(circle at 50% 2%, currentColor 0 2.2%, transparent 2.5%),
+    radial-gradient(circle at 98% 50%, currentColor 0 2.2%, transparent 2.5%),
+    radial-gradient(circle at 50% 98%, currentColor 0 2.2%, transparent 2.5%),
+    radial-gradient(circle at 2% 50%, currentColor 0 2.2%, transparent 2.5%),
+    radial-gradient(circle at 15% 15%, currentColor 0 1.6%, transparent 1.9%),
+    radial-gradient(circle at 85% 15%, currentColor 0 1.6%, transparent 1.9%),
+    radial-gradient(circle at 85% 85%, currentColor 0 1.6%, transparent 1.9%),
+    radial-gradient(circle at 15% 85%, currentColor 0 1.6%, transparent 1.9%);
+}
+
+.petal {
+  --angle: 0deg;
+  --closed-angle: -46deg;
+  --delay: 0ms;
+
+  position: absolute;
+  top: 19%;
+  left: 40%;
+  z-index: 3;
+  width: 20%;
+  height: 34%;
+  border: max(1px, 0.009em) solid color-mix(in srgb, var(--logo-petal-deep) 34%, transparent);
+  border-radius: 58% 58% 48% 48%;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, white 38%, var(--logo-petal)), var(--logo-petal)),
+    var(--logo-petal);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 44%, transparent);
+  transform: rotate(var(--angle));
   transform-origin: 50% 94%;
 }
 
 .petalOne {
-  transform: rotate(0deg);
+  --angle: 0deg;
+  --closed-angle: -42deg;
+  --delay: 110ms;
 }
 
 .petalTwo {
-  transform: rotate(72deg);
-  background: #f3b2bc;
+  --angle: 72deg;
+  --closed-angle: 18deg;
+  --delay: 180ms;
+  --logo-petal: #f2b0ba;
 }
 
 .petalThree {
-  transform: rotate(144deg);
-  background: #e98f9f;
+  --angle: 144deg;
+  --closed-angle: 80deg;
+  --delay: 250ms;
+  --logo-petal: #e8899b;
 }
 
 .petalFour {
-  transform: rotate(216deg);
-  background: #f6c1c8;
+  --angle: 216deg;
+  --closed-angle: 150deg;
+  --delay: 320ms;
+  --logo-petal: #f5c1c8;
 }
 
 .petalFive {
-  transform: rotate(288deg);
-  background: #ed9cab;
+  --angle: 288deg;
+  --closed-angle: 230deg;
+  --delay: 390ms;
+  --logo-petal: #ed9cab;
 }
 
 .center {
   position: absolute;
-  inset: 40%;
-  z-index: 2;
-  border: max(2px, 0.018em) solid #f7d5da;
+  inset: 41%;
+  z-index: 4;
+  border: max(2px, 0.018em) solid color-mix(in srgb, #f8dbe0 78%, white);
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 0 max(2px, 0.018em) color-mix(in srgb, #1d1d1f 12%, transparent);
+  box-shadow: 0 0 0 max(2px, 0.017em) color-mix(in srgb, currentColor 9%, transparent);
 }
 
 .wordmark {
@@ -86,8 +151,42 @@
   letter-spacing: 0.16em;
 }
 
-html[data-theme="dark"] .mark {
-  color: #f5f5f7;
+.animated .mark {
+  animation: logo-open 980ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+.animated .filmRing {
+  animation: ring-open 980ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+.animated .filmPerfs {
+  animation: perfs-open 1080ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+.animated .petal {
+  animation: petal-open 980ms cubic-bezier(0.19, 1, 0.22, 1) both;
+  animation-delay: var(--delay);
+}
+
+.animated .center {
+  animation: center-open 720ms cubic-bezier(0.19, 1, 0.22, 1) 460ms both;
+}
+
+html[data-theme="dark"] .logo {
+  --logo-ink: #f5f5f7;
+  --logo-ink-soft: rgba(245, 245, 247, 0.48);
+  --logo-paper: rgba(26, 29, 36, 0.76);
+}
+
+@media (hover: hover) {
+  .logo:hover .mark {
+    transition: transform 260ms ease;
+    transform: rotate(-5deg);
+  }
+
+  .animated:hover .mark {
+    transform: none;
+  }
 }
 
 @media (max-width: 540px) {
@@ -97,5 +196,81 @@ html[data-theme="dark"] .mark {
 
   .wordmark strong {
     font-size: 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animated .mark,
+  .animated .filmRing,
+  .animated .filmPerfs,
+  .animated .petal,
+  .animated .center {
+    animation: none !important;
+  }
+}
+
+@keyframes logo-open {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: rotate(-28deg) scale(0.82);
+  }
+
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes ring-open {
+  from {
+    opacity: 0;
+    transform: rotate(36deg) scale(0.8);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes perfs-open {
+  from {
+    opacity: 0;
+    transform: rotate(-54deg) scale(0.78);
+  }
+
+  to {
+    opacity: 0.4;
+    transform: rotate(0deg) scale(1);
+  }
+}
+
+@keyframes petal-open {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--closed-angle)) scaleX(0.5) scaleY(0.22);
+  }
+
+  58% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 1;
+    transform: rotate(var(--angle)) scale(1);
+  }
+}
+
+@keyframes center-open {
+  from {
+    opacity: 0;
+    transform: scale(0.35);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
   }
 }

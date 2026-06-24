@@ -1,9 +1,20 @@
 import styles from "./sakura-logo.module.css";
 
-export function SakuraLogo({ size = "large", showName = false }: { size?: "small" | "large"; showName?: boolean }) {
+type SakuraLogoProps = {
+  size?: "small" | "large";
+  showName?: boolean;
+  animate?: boolean;
+};
+
+export function SakuraLogo({ size = "large", showName = false, animate = false }: SakuraLogoProps) {
   return (
-    <div className={`${styles.logo} ${size === "small" ? styles.small : styles.large}`} aria-label={showName ? "Film Archive" : undefined}>
+    <div
+      className={`${styles.logo} ${size === "small" ? styles.small : styles.large} ${animate ? styles.animated : ""}`}
+      aria-label={showName ? "Film Archive" : undefined}
+    >
       <span className={styles.mark} aria-hidden>
+        <i className={styles.filmRing} />
+        <i className={styles.filmPerfs} />
         <i className={`${styles.petal} ${styles.petalOne}`} />
         <i className={`${styles.petal} ${styles.petalTwo}`} />
         <i className={`${styles.petal} ${styles.petalThree}`} />

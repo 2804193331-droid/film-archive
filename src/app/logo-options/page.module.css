@@ -1,7 +1,12 @@
+.page {
+  padding: 54px 0 86px;
+}
+
 .header {
   display: grid;
   gap: 10px;
-  padding: 64px 0 34px;
+  max-width: 760px;
+  margin-bottom: 28px;
 }
 
 .header p,
@@ -11,9 +16,9 @@
 }
 
 .header p {
-  color: var(--accent);
+  color: var(--sakura);
   font-size: 11px;
-  font-weight: 760;
+  font-weight: 780;
 }
 
 .header h1 {
@@ -30,7 +35,6 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 18px;
-  padding-bottom: 80px;
 }
 
 .card {
@@ -38,128 +42,420 @@
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
-  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--shadow);
 }
 
-.canvas {
-  aspect-ratio: 4 / 3;
+.cardHeader {
+  min-height: 54px;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cardHeader span {
+  color: var(--sakura);
+  font-weight: 800;
+}
+
+.cardHeader strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardHeader em {
+  border: 1px solid color-mix(in srgb, var(--sakura) 24%, transparent);
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: color-mix(in srgb, var(--sakura) 78%, var(--text));
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 680;
+  white-space: nowrap;
+}
+
+.logoStage {
+  position: relative;
+  min-height: 280px;
   display: grid;
   place-items: center;
   overflow: hidden;
-  background: var(--surface-subtle);
-  color: var(--text);
+  background:
+    radial-gradient(ellipse 10px 17px at 73% 27%, color-mix(in srgb, var(--sakura) 10%, transparent) 0 58%, transparent 60%),
+    repeating-linear-gradient(90deg, transparent 0 18px, color-mix(in srgb, var(--text) 4%, transparent) 18px 19px, transparent 19px 34px) top 28px right 26px / 180px 18px no-repeat,
+    color-mix(in srgb, var(--surface-subtle) 78%, var(--surface));
 }
 
-.canvas > div {
-  transform: scale(0.55);
+.logoLockup {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  justify-content: center;
 }
 
-.iconMark {
-  position: relative;
-  width: 150px;
-  height: 150px;
+.logoLockup > div:first-child {
+  width: 190px;
   display: grid;
   place-items: center;
 }
 
-.outlineFlower {
-  color: #d9657b;
+.logoLockup > div:first-child > span {
+  width: 172px;
 }
 
-.shutterMark {
-  color: var(--text);
+.logoLockup > div:last-child {
+  display: grid;
+  gap: 8px;
 }
 
-.shutterMark i {
+.logoLockup strong {
+  font-size: 36px;
+  line-height: 0.95;
+}
+
+.logoLockup small {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.16em;
+}
+
+.conceptLogo {
+  position: relative;
+  width: 152px;
+  height: 152px;
+  animation: concept-open 1120ms cubic-bezier(0.19, 1, 0.22, 1) both;
+}
+
+.windowLogo {
+  border: 1px solid color-mix(in srgb, var(--text) 76%, transparent);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 12px 18px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 12px 42px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 12px 66px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 12px 90px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 12px 114px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 140px 18px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 140px 42px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 140px 66px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 140px 90px, currentColor 0 3px, transparent 3.4px),
+    radial-gradient(circle at 140px 114px, currentColor 0 3px, transparent 3.4px);
+  box-shadow: inset 0 0 0 18px color-mix(in srgb, var(--surface) 66%, transparent);
+  color: color-mix(in srgb, var(--text) 74%, transparent);
+}
+
+.windowLogo span {
   position: absolute;
-  top: 17px;
-  right: 24px;
-  width: 28px;
-  height: 42px;
-  border-radius: 50% 50% 46% 46%;
-  background: #ef9aaa;
-  transform: rotate(36deg);
-}
-
-.filmMark svg:first-child {
-  color: var(--text);
-}
-
-.filmMark svg:last-child,
-.focusMark svg:last-child {
-  position: absolute;
-  color: #e87f92;
-  fill: color-mix(in srgb, #e87f92 22%, transparent);
-}
-
-.monogramMark {
-  border: 1px solid var(--text);
+  inset: 33px 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
   border-radius: 50%;
-}
-
-.monogramMark strong {
+  color: var(--text);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 58px;
-  font-weight: 500;
+  font-size: 34px;
 }
 
-.monogramMark i {
+.windowPetalOne,
+.windowPetalTwo {
   position: absolute;
-  top: 20px;
-  right: 28px;
-  width: 25px;
-  height: 36px;
+  z-index: 2;
+  width: 24px;
+  height: 38px;
   border-radius: 50% 50% 46% 46%;
-  background: #ec92a3;
+  background: color-mix(in srgb, var(--sakura) 78%, white);
+  transform-origin: 50% 92%;
+}
+
+.windowPetalOne {
+  top: 26px;
+  right: 38px;
   transform: rotate(34deg);
 }
 
-.focusMark svg:first-child {
-  color: var(--text-muted);
+.windowPetalTwo {
+  top: 38px;
+  right: 58px;
+  opacity: 0.72;
+  transform: rotate(-20deg);
 }
 
-.caption {
-  min-height: 86px;
+.lensLogo {
+  border: 1px solid color-mix(in srgb, var(--text) 62%, transparent);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, transparent 0 33%, color-mix(in srgb, var(--text) 8%, transparent) 34% 35%, transparent 36%),
+    conic-gradient(from 30deg, transparent 0 11%, color-mix(in srgb, var(--text) 18%, transparent) 11% 12%, transparent 12% 28%, color-mix(in srgb, var(--text) 16%, transparent) 28% 29%, transparent 29%);
+}
+
+.lensLogo::before {
+  position: absolute;
+  inset: 30px;
+  content: "";
+  border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+  border-radius: 50%;
+}
+
+.lensLogo span {
+  position: absolute;
+  top: 22px;
+  right: 28px;
+  width: 26px;
+  height: 40px;
+  border-radius: 50% 50% 46% 46%;
+  background: color-mix(in srgb, var(--sakura) 78%, white);
+  transform: rotate(38deg);
+}
+
+.lensBladeOne,
+.lensBladeTwo,
+.lensBladeThree {
+  position: absolute;
+  inset: 47px;
+  border-radius: 18px 42px 18px 42px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.lensBladeOne {
+  transform: rotate(0deg);
+}
+
+.lensBladeTwo {
+  transform: rotate(60deg);
+}
+
+.lensBladeThree {
+  transform: rotate(120deg);
+}
+
+.mockSite {
+  padding: 16px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 12px;
-  align-items: start;
-  padding: 15px;
+  gap: 14px;
 }
 
-.caption > span {
-  color: #d45d74;
-  font-weight: 780;
+.mockNav {
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: grid;
+  grid-template-columns: 72px 1fr 38px;
+  gap: 10px;
+  align-items: center;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--surface-glass) 82%, transparent);
 }
 
-.caption h2,
-.caption p {
+.mockNav span,
+.mockNav i,
+.mockStack span {
+  display: block;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 13%, transparent);
+}
+
+.mockNav span {
+  height: 8px;
+}
+
+.mockNav i {
+  height: 6px;
+}
+
+.mockBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 14px;
+  align-items: end;
+}
+
+.mockPhoto {
+  min-height: 148px;
+  border-radius: 7px;
+  background:
+    linear-gradient(180deg, rgba(111, 149, 174, 0.62), rgba(241, 184, 125, 0.72) 62%, rgba(48, 50, 54, 0.72)),
+    color-mix(in srgb, var(--surface-subtle) 72%, transparent);
+}
+
+.mockStack {
+  display: grid;
+  gap: 8px;
+}
+
+.mockStack span {
+  height: 8px;
+}
+
+.mockStack span:first-child {
+  width: 82px;
+}
+
+.mockStack span:nth-child(2) {
+  width: 66px;
+}
+
+.mockStack span:nth-child(3) {
+  width: 48px;
+}
+
+.copy {
+  display: grid;
+  gap: 13px;
+  padding: 0 16px 18px;
+}
+
+.copy p {
+  min-height: 44px;
   margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
-.caption h2 {
-  font-size: 15px;
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
 }
 
-.caption p {
-  margin-top: 5px;
+.tags span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 9px;
   color: var(--text-muted);
   font-size: 12px;
-  line-height: 1.5;
 }
 
-@media (max-width: 900px) {
-  .grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.schemeBloom .logoStage {
+  background:
+    radial-gradient(ellipse 10px 17px at 73% 27%, color-mix(in srgb, var(--sakura) 10%, transparent) 0 58%, transparent 60%),
+    repeating-linear-gradient(90deg, transparent 0 18px, color-mix(in srgb, var(--text) 4%, transparent) 18px 19px, transparent 19px 34px) top 28px right 26px / 180px 18px no-repeat,
+    color-mix(in srgb, var(--surface-subtle) 74%, var(--surface));
 }
 
-@media (max-width: 560px) {
-  .header {
-    padding-top: 38px;
-  }
+.schemeWindow .logoStage {
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--text) 4%, transparent) 0 1px, transparent 1px) left 28px top 28px / 32px 100% no-repeat,
+    color-mix(in srgb, var(--surface-subtle) 68%, var(--surface));
+}
 
+.schemeLens .logoStage {
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 31%, color-mix(in srgb, var(--text) 4%, transparent) 32% 33%, transparent 34%),
+    color-mix(in srgb, #eef1f5 54%, var(--surface));
+}
+
+html[data-theme="dark"] .schemeLens .logoStage {
+  background:
+    radial-gradient(circle at 50% 50%, transparent 0 31%, color-mix(in srgb, white 5%, transparent) 32% 33%, transparent 34%),
+    color-mix(in srgb, #1a1d24 74%, var(--surface));
+}
+
+@media (max-width: 1100px) {
   .grid {
     grid-template-columns: 1fr;
+  }
+
+  .card {
+    display: grid;
+    grid-template-columns: minmax(280px, 0.9fr) minmax(0, 1.1fr);
+  }
+
+  .cardHeader,
+  .logoStage {
+    grid-column: 1;
+  }
+
+  .mockSite,
+  .copy {
+    grid-column: 2;
+  }
+
+  .cardHeader {
+    border-right: 1px solid var(--line);
+  }
+
+  .logoStage {
+    min-height: 320px;
+    border-right: 1px solid var(--line);
+  }
+
+  .mockSite {
+    align-content: end;
+    padding-top: 64px;
+  }
+}
+
+@media (max-width: 720px) {
+  .page {
+    padding-top: 36px;
+  }
+
+  .card {
+    display: block;
+  }
+
+  .cardHeader,
+  .logoStage {
+    border-right: 0;
+  }
+
+  .cardHeader {
+    grid-template-columns: 32px minmax(0, 1fr);
+  }
+
+  .cardHeader em {
+    grid-column: 2;
+    width: fit-content;
+    margin-bottom: 12px;
+  }
+
+  .logoStage {
+    min-height: 250px;
+  }
+
+  .logoLockup {
+    gap: 16px;
+  }
+
+  .logoLockup > div:first-child {
+    width: 150px;
+  }
+
+  .logoLockup > div:first-child > span {
+    width: 132px;
+  }
+
+  .logoLockup strong {
+    font-size: 28px;
+  }
+
+  .mockSite {
+    padding-top: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conceptLogo {
+    animation: none !important;
+  }
+}
+
+@keyframes concept-open {
+  from {
+    opacity: 0;
+    transform: rotate(-24deg) scale(0.82);
+  }
+
+  to {
+    opacity: 1;
+    transform: rotate(0deg) scale(1);
   }
 }

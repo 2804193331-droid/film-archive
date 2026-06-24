@@ -11,6 +11,9 @@
   --line-strong: rgba(29, 29, 31, 0.18);
   --accent: #0066cc;
   --accent-ink: #ffffff;
+  --sakura: #d86178;
+  --sakura-soft: rgba(216, 97, 120, 0.12);
+  --film-ghost: rgba(29, 29, 31, 0.055);
   --positive: #16835d;
   --warning: #a65d08;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
@@ -33,6 +36,9 @@ html[data-theme="dark"] {
   --line-strong: rgba(255, 255, 255, 0.18);
   --accent: #5aa7ff;
   --accent-ink: #101114;
+  --sakura: #f0a0ae;
+  --sakura-soft: rgba(240, 160, 174, 0.1);
+  --film-ghost: rgba(255, 255, 255, 0.055);
   --positive: #68c89a;
   --warning: #e3a33b;
   --shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
@@ -51,7 +57,14 @@ html {
 body {
   min-height: 100%;
   margin: 0;
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse 10px 18px at calc(100% - 118px) 114px, var(--sakura-soft) 0 58%, transparent 60%),
+    radial-gradient(ellipse 8px 15px at calc(100% - 92px) 148px, color-mix(in srgb, var(--sakura) 8%, transparent) 0 58%, transparent 62%),
+    radial-gradient(ellipse 7px 13px at 62px 178px, color-mix(in srgb, var(--sakura) 7%, transparent) 0 58%, transparent 62%),
+    repeating-linear-gradient(90deg, transparent 0 17px, var(--film-ghost) 17px 18px, transparent 18px 30px) top 92px right -30px / 260px 28px no-repeat,
+    repeating-linear-gradient(0deg, transparent 0 18px, var(--film-ghost) 18px 19px, transparent 19px 32px) bottom 58px left -58px / 30px 260px no-repeat,
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   font-family:
     Inter, "Source Han Sans SC", "Noto Sans CJK SC", "PingFang SC",
