@@ -1,10 +1,11 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
 import { RotatedImage } from "@/components/rotated-image";
-import { normalizeRotation } from "@/lib/rotation";
+import { normalizeRotation, rotatedAspectRatio } from "@/lib/rotation";
 import styles from "./photo-viewer.module.css";
 
 export function PhotoViewer({
@@ -23,6 +24,18 @@ export function PhotoViewer({
   const [open, setOpen] = useState(false);
   const [scale, setScale] = useState(1);
   const normalizedRotation = normalizeRotation(rotation);
+  const aspect = width && height ? rotatedAspectRatio(width, height, normalizedRotation) : null;
+  const ratio = aspect ? aspect.width / aspect.height : null;
+  const stageStyle =
+    ratio && ratio < 1
+      ? ({
+          width: `min(100%, ${Number((ratio * 76).toFixed(3))}vh)`
+        } as CSSProperties)
+      : undefined;
+  const viewerStyle = {
+    scale,
+    "--viewer-width": ratio ? `min(94vw, ${Number((ratio * 92).toFixed(3))}vh, 1800px)` : "min(94vw, 1800px)"
+  } as CSSProperties & { scale: number };
 
   useEffect(() => {
     if (!open) return;
@@ -45,14 +58,14 @@ export function PhotoViewer({
 
   return (
     <>
-      <button className={styles.stage} type="button" onClick={() => setOpen(true)}>
+      <button className={styles.stage} type="button" onClick={() => setOpen(true)} style={stageStyle}>
         <RotatedImage
           src={src}
           alt={alt}
           rotation={normalizedRotation}
           width={width}
           height={height}
-          fit="cover"
+          fit="contain"
           className={styles.stageImage}
         />
       </button>
@@ -69,19 +82,28 @@ export function PhotoViewer({
           <button className={styles.close} type="button" onClick={() => setOpen(false)} aria-label="关闭">
             <X size={18} aria-hidden />
           </button>
-          <motion.img
+          <motion.div
             className={styles.full}
-            src={src}
-            alt={alt}
             drag
             dragMomentum={false}
-            style={{ scale, rotate: normalizedRotation }}
+            style={viewerStyle}
             onClick={(event) => event.stopPropagation()}
             onWheel={(event) => {
               event.stopPropagation();
               setScale((value) => Math.min(4, Math.max(0.7, value - event.deltaY * 0.0015)));
             }}
-          />
+          >
+            <RotatedImage
+              src={src}
+              alt={alt}
+              rotation={normalizedRotation}
+              width={width}
+              height={height}
+              fit="contain"
+              className={styles.fullImage}
+              draggable={false}
+            />
+          </motion.div>
         </motion.div>
       ) : null}
     </>

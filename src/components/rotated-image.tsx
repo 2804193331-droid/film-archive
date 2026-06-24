@@ -12,7 +12,7 @@ type RotatedImageProps = {
   className?: string;
   imageClassName?: string;
   style?: CSSProperties;
-} & Pick<ImgHTMLAttributes<HTMLImageElement>, "loading" | "decoding" | "onLoad" | "onError" | "title">;
+} & Pick<ImgHTMLAttributes<HTMLImageElement>, "loading" | "decoding" | "onLoad" | "onError" | "title" | "draggable">;
 
 export function RotatedImage({
   src,
