@@ -13,8 +13,6 @@ export function SakuraLogo({ size = "large", showName = false, animate = false }
       aria-label={showName ? "Film Archive" : undefined}
     >
       <span className={styles.mark} aria-hidden>
-        <i className={styles.filmRing} />
-        <i className={styles.filmPerfs} />
         <i className={`${styles.petal} ${styles.petalOne}`} />
         <i className={`${styles.petal} ${styles.petalTwo}`} />
         <i className={`${styles.petal} ${styles.petalThree}`} />

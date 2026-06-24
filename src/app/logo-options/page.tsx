@@ -4,11 +4,11 @@ import styles from "./page.module.css";
 const schemes = [
   {
     id: "01",
-    name: "胶片花环",
+    name: "樱花标",
     badge: "当前推荐",
-    mood: "最克制，适合正式站。胶片环负责识别，樱花只做轻柔记忆点。",
+    mood: "最克制，适合正式站。只保留樱花本体，让标志更轻、更干净。",
     className: "schemeBloom",
-    points: ["圆形胶片环", "樱花旋转打开", "背景装饰最淡"]
+    points: ["纯樱花标", "旋转打开", "不加辅助装饰"]
   },
   {
     id: "02",
